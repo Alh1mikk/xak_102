@@ -85,6 +85,18 @@ async def poll(telegram, client):
                     if query.startswith("/start ") and message["chat"]["type"] == "private":
                         linked = await connect_chat(query.split(maxsplit=1)[1], message["chat"]["id"])
                         reply = "Telegram привязан. Настройте подписку в профиле сайта." if linked else "Ссылка недействительна. Создайте новую в профиле."
+                    elif query in ("/start", "/help") and message["chat"]["type"] == "private":
+                        html = ('<!doctype html><meta charset="utf-8"><style>'
+                                'body{font:16px system-ui;color:#173d2c;margin:12px}'
+                                'main{background:#e5f4c9;border-radius:18px;padding:18px}</style>'
+                                '<main><h2>Вне афиши ✦</h2><p>Культурные события Башкортостана.</p>'
+                                '<p>Напишите: «Куда сходить с ребёнком на выходных?»</p></main>')
+                        try:
+                            await telegram("sendWidget", chat_id=message["chat"]["id"], html=html)
+                            offset = update["update_id"] + 1
+                            continue
+                        except RuntimeError:
+                            logging.info("Приветственный виджет недоступен")
                     elif not query.startswith("/"):
                         response = await client.post("http://api:8000/ai/search", json={"text": query[:500]})
                         response.raise_for_status()

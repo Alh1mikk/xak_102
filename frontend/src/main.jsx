@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { eventParams, priceLabel, webUrl } from './catalog.js'
 import '../style.css'
@@ -39,6 +39,23 @@ function Poster({ event }) {
 
 function orderedStops(events) {
   return [...events].sort((first, second) => Date.parse(first.start_at) - Date.parse(second.start_at))
+}
+
+function FeaturedEvents({ events }) {
+  const rail = useRef(null)
+  if (!events.length) return null
+  function slide(direction) {
+    const track = rail.current
+    const width = track.firstElementChild.getBoundingClientRect().width + 16
+    track.scrollBy({ left: direction * width, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+  }
+  return <section className="featured" aria-label="Ближайшие события">
+    <div className="featured-head"><h2>Ближайшие события</h2><div className="carousel-controls">
+      <button type="button" aria-label="Предыдущие события" onClick={() => slide(-1)}>←</button>
+      <button type="button" aria-label="Следующие события" onClick={() => slide(1)}>→</button>
+    </div></div>
+    <div className="event-rail" ref={rail}>{events.map(event => <Poster key={event.id} event={event} />)}</div>
+  </section>
 }
 
 function App() {
@@ -210,11 +227,19 @@ function App() {
       {page === 'account' && <Account api={api} user={user} setUser={setUser} reference={reference} />}
       {!['chat', 'account'].includes(page) && !page.startsWith('poll/') && <section className="catalog page" id="catalog">
         <div className="wrap">
-          <div className="catalog-head"><div><p className="location">Башкортостан</p><h1>События</h1></div></div>
-          <aside className="project-intro">
-            <div><h2>Культура рядом</h2><p>«Вне афиши» собирает спектакли, выставки и концерты Башкортостана. Найдите, куда сходить с семьёй, друзьями или самостоятельно.</p></div>
-            <a className="primary" href="#chat">Подобрать событие ↗</a>
-          </aside>
+          <section className="panorama">
+            <img className="panorama-image" src="/toratau.jpg" alt="Шихан Торатау, Башкортостан" fetchPriority="high" />
+            <div className="panorama-copy">
+              <p>Культурная афиша Башкортостана</p>
+              <h1>Куда пойти <em>в Башкортостане</em></h1>
+              <a className="primary" href="#chat">Подобрать событие <span aria-hidden="true">↗</span></a>
+            </div>
+            <div className="panorama-stars" aria-hidden="true"><span>✦</span><span>✧</span><span>✦</span></div>
+            <a className="photo-credit" href="https://commons.wikimedia.org/wiki/File:Shihan_Toratau.jpg">Торатау · фото К. Цибина</a>
+          </section>
+          <div className="panorama-strip"><span>Спектакли, выставки и концерты региона</span><button type="button" onClick={() => document.getElementById("event-list").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" })}>К событиям ↓</button></div>
+          {!Object.values(filters).some(Boolean) && <FeaturedEvents events={catalog.events.slice(0, 6)} />}
+          <h2 className="catalog-heading" id="event-list">Все события</h2>
           <form className="filters" onSubmit={e => e.preventDefault()}>
             <label>Город<select value={filters.city_id} onChange={e => updateFilters({ ...filters, city_id: e.target.value })}>
               <option value="">Все города</option>{reference.cities.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}

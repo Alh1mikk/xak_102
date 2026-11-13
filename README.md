@@ -64,3 +64,5 @@ GitHub Actions прогоняет тесты на pull request и push в main. 
 Переключение на реальный SMTP: `docker compose --profile telegram up -d --remove-orphans`. Для локальной проверки с Mailpit: `docker compose -f compose.yaml -f compose.mail-test.yaml --profile telegram up -d`. Письма в локальном режиме доступны на http://127.0.0.1:8025.
 
 В личных чатах бот отправляет подборки через Telegram `sendWidget`. Если Telegram отклоняет виджет, бот отправляет текстовую карточку.
+
+Фото Торатау на главной: [Константин Цибин, Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Shihan_Toratau.jpg), [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Изображение уменьшено и кадрируется в браузере.

@@ -86,3 +86,43 @@ footer{border-top:1px solid var(--rule);padding-block:20px;font-weight:700}
 .preferences label.check input{width:18px;height:18px;margin:0}
 .profile-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:10px}
 .profile-actions a,.profile-actions button{border:1px solid var(--green);border-radius:8px;padding:8px;color:var(--green);font-weight:600}
+
+:root{--paper:#fbfbf7;--surface:#fff;--tint:#edf1e7;--rule:#e0e4d9;--lime:#def7a9}
+.site-header nav{min-height:68px}
+.brand-dot,.primary,.load{background:var(--lime);color:#1c271b}
+.primary,.load,.tabs a{border-radius:999px}
+.primary:hover,.load:hover{background:#caeb88;color:#172314}
+.catalog.page{padding-top:12px}
+.panorama{position:relative;isolation:isolate;overflow:hidden;min-height:clamp(420px,57vw,650px);border-radius:clamp(18px,3vw,34px);background:#466c52;color:white;display:grid;align-items:start;text-align:center}
+.panorama-image{position:absolute;z-index:-2;width:100%;height:100%;object-fit:cover;object-position:center 53%}
+.panorama::before{content:'';position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,#122d28b8 0%,#172e2455 46%,transparent 75%)}
+.panorama-copy{padding:clamp(38px,7vw,100px) 16px 120px}
+.panorama-copy p{font-size:.88rem;font-weight:700;margin-bottom:16px}
+.panorama .panorama-copy h1{font-size:clamp(2.5rem,7.4vw,7rem);font-weight:600;letter-spacing:-.07em;line-height:.93;margin-bottom:27px}
+.panorama h1 em{display:block;font-weight:450}
+.panorama-stars{position:absolute;inset:auto 0 22% 0;pointer-events:none;display:flex;justify-content:center;align-items:center;gap:16px}
+.panorama-stars span{font-size:clamp(1.2rem,3vw,2.8rem)}
+.panorama-stars span:nth-child(2){font-size:clamp(3.5rem,8vw,7rem);color:var(--lime)}
+.photo-credit{position:absolute;bottom:12px;right:12px;border-radius:999px;background:#19352acc;padding:6px 10px;font-size:.72rem}
+.panorama-strip{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;margin-top:12px;border-radius:14px;background:var(--tint);font-size:.85rem}
+.panorama-strip button{font-weight:750;white-space:nowrap}
+.featured{padding-block:clamp(32px,7vw,80px)}
+.featured-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}
+.featured h2,.catalog-heading{font-weight:650;font-size:clamp(1.5rem,4vw,3.65rem);letter-spacing:-.065em;line-height:1}
+.catalog-heading{margin-block:25px 20px;scroll-margin-top:24px}
+.carousel-controls{display:flex;gap:7px}
+.carousel-controls button{border-radius:50%;background:var(--lime);width:44px;height:44px;font-size:1.2rem}
+.carousel-controls button:hover{background:#caeb88}
+.event-rail{display:grid;grid-auto-flow:column;grid-auto-columns:clamp(225px,32%,400px);gap:16px;overflow-x:auto;scroll-snap-type:x mandatory;overscroll-behavior-inline:contain;padding-bottom:10px}
+.event-rail .poster{scroll-snap-align:start}
+@media(max-width:560px){.event-rail{grid-auto-columns:83%}.panorama .panorama-copy h1{font-size:clamp(2rem,9vw,3.2rem)}.panorama-strip{font-size:.74rem}}
+@media(prefers-reduced-motion:no-preference){
+ .panorama-copy{animation:panorama-in .75s cubic-bezier(.2,.75,.25,1) both}
+ .panorama-image{animation:panorama-zoom 1.6s ease-out both}
+ .panorama-stars span{animation:star-pop .85s .35s cubic-bezier(.2,.85,.32,1.35) both}
+ .panorama-stars span:nth-child(2){animation-delay:.48s}
+ .panorama-stars span:nth-child(3){animation-delay:.6s}
+ @keyframes panorama-in{from{opacity:0;transform:translateY(23px)}to{opacity:1;transform:none}}
+ @keyframes panorama-zoom{from{transform:scale(1.08)}to{transform:none}}
+ @keyframes star-pop{from{opacity:0;transform:scale(.1) rotate(-70deg)}to{opacity:1;transform:none}}
+}
