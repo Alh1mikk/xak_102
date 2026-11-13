@@ -66,3 +66,15 @@ class TelegramSignatureTests(unittest.TestCase):
         self.assertEqual(verified_telegram_user(payload, "token", 1050), ("123", "Имя"))
         self.assertIsNone(verified_telegram_user(payload, "token", 1400))
         self.assertIsNone(verified_telegram_user({**payload, "id": 999}, "token", 1050))
+
+
+class BotTests(unittest.TestCase):
+    def test_format_includes_local_time_and_zero_price(self):
+        from app.bot import format_results
+
+        reply = format_results({"explanation": "Подборка", "events": [{
+            "title": "Спектакль", "start_at": "2026-11-14T13:00:00Z", "price_min": 0,
+            "address": "Уфа", "source_urls": ["https://example.org/show"],
+        }]})
+        self.assertIn("14.11 18:00 · Бесплатно", reply)
+        self.assertIn("https://example.org/show", reply)

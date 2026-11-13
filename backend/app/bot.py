@@ -1,8 +1,24 @@
 import asyncio
 import logging
 import os
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
+
+
+def format_results(result):
+    lines = [result["explanation"]]
+    for event in result["events"]:
+        start = datetime.fromisoformat(event["start_at"]).astimezone(ZoneInfo("Asia/Yekaterinburg"))
+        price = event["price_min"]
+        cost = "Цена уточняется" if price is None else "Бесплатно" if price == 0 else f"от {price} ₽"
+        details = [event["title"][:200], f"{start:%d.%m %H:%M} · {cost}"]
+        if event.get("address"):
+            details.append(event["address"][:200])
+        details.extend(event["source_urls"][:1])
+        lines.append("\n".join(details))
+    return "\n\n".join(lines)[:4096]
 
 
 async def main():
@@ -25,15 +41,12 @@ async def main():
                     message = update.get("message", {})
                     query = message.get("text", "").strip()
                     if query:
-                        reply = "Напишите, например, «куда пойти в субботу с ребёнком до 1000 рублей»."
+                        reply = "Это «Вне афиши» — культурные события Башкортостана. Напишите, например, «куда пойти в субботу с ребёнком до 1000 рублей»."
                         if not query.startswith("/"):
                             response = await client.post("http://api:8000/ai/search", json={"text": query[:500]})
                             response.raise_for_status()
                             result = response.json()
-                            lines = [result["explanation"]]
-                            for event in result["events"]:
-                                lines.append(event["title"][:200] + "\n" + "\n".join(event["source_urls"][:1]))
-                            reply = "\n\n".join(lines)
+                            reply = format_results(result)
                         await telegram("sendMessage", chat_id=message["chat"]["id"], text=reply[:4096])
                     offset = update["update_id"] + 1
             except (httpx.HTTPError, RuntimeError, ValueError) as error:
