@@ -140,3 +140,13 @@ class TelegramUser(Base):
     name: Mapped[str] = mapped_column(Text)
     session_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
     session_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+
+
+class EmailUser(Base):
+    __tablename__ = "email_users"
+
+    email: Mapped[str] = mapped_column(Text, primary_key=True)
+    login_hash: Mapped[Optional[str]] = mapped_column(Text)
+    login_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    session_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    session_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))

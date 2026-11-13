@@ -90,6 +90,22 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await client.get("/api/auth/me")).json(), {"name": "Тест"})
             self.assertEqual((await client.post("/api/auth/logout")).status_code, 200)
             self.assertIsNone((await client.get("/api/auth/me")).json())
+            email_token = "a" * 43
+            async with AsyncSessionLocal.begin() as db:
+                db.add(models.EmailUser(
+                    email="person@example.org", login_hash=hashlib.sha256(email_token.encode()).hexdigest(),
+                    login_expires=datetime.now(timezone.utc) + timedelta(minutes=15),
+                ))
+            confirmation = {"email": "PERSON@example.org", "token": email_token}
+            login = await client.post("/api/auth/email/confirm", json=confirmation)
+            login.raise_for_status()
+            self.assertIn("HttpOnly", login.headers["set-cookie"])
+            self.assertIn("Max-Age=604800", login.headers["set-cookie"])
+            self.assertEqual((await client.get("/api/auth/me")).json(), {"name": "person@example.org"})
+            self.assertEqual((await client.post("/api/auth/email/confirm", json=confirmation)).status_code, 401)
+            await client.post("/api/auth/logout")
+            self.assertIsNone((await client.get("/api/auth/me")).json())
+
 
 
 if __name__ == "__main__":

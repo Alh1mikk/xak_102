@@ -12,7 +12,10 @@ const dateFormat = new Intl.DateTimeFormat('ru-RU', {
 
 async function api(path, options) {
   const response = await fetch('/api' + path, options)
-  if (!response.ok) throw new Error('Не удалось получить данные. Попробуйте ещё раз.')
+  if (!response.ok) {
+    const data = await response.json().catch(() => null)
+    throw new Error(typeof data?.detail === 'string' ? data.detail : 'Не удалось получить данные. Попробуйте ещё раз.')
+  }
   return response.json()
 }
 
@@ -49,9 +52,9 @@ function App() {
   const [route, setRoute] = useState(null)
   const [routing, setRouting] = useState(false)
   const [routeError, setRouteError] = useState('')
-  const [page, setPage] = useState(() => location.hash.slice(1) || 'events')
+  const [page, setPage] = useState(() => location.hash.slice(1).split("?")[0] || 'events')
   useEffect(() => {
-    const onHash = () => { setPage(location.hash.slice(1) || 'events'); window.scrollTo(0, 0) }
+    const onHash = () => { setPage(location.hash.slice(1).split("?")[0] || 'events'); window.scrollTo(0, 0) }
     window.addEventListener('hashchange', onHash)
     api('/auth/me').then(setUser).catch(() => {})
     return () => window.removeEventListener('hashchange', onHash)
