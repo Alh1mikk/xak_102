@@ -94,3 +94,15 @@ class WidgetTests(unittest.IsolatedAsyncioTestCase):
         telegram = AsyncMock(side_effect=[RuntimeError("unsupported"), {}])
         await send_results(telegram, 123, result, True)
         self.assertEqual([call.args[0] for call in telegram.await_args_list], ["sendWidget", "sendMessage"])
+
+
+class CalendarIntentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_free_this_week_without_inferred_city(self):
+        from app.routers.ai import ModelIntent
+
+        with patch("app.routers.ai.ask_model", return_value=ModelIntent(city="Уфа")):
+            intent, _ = await interpret("Какие бесплатные события есть на этой неделе?", date(2026, 11, 13), ["Уфа"], [])
+        self.assertIsNone(intent.city)
+        self.assertEqual(intent.budget, 0)
+        self.assertEqual(intent.date_from, date(2026, 11, 13))
+        self.assertEqual(intent.date_to, date(2026, 11, 15))

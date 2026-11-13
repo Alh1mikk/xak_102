@@ -52,6 +52,9 @@ async def interpret(query, today, cities, categories, use_model=True):
         if pattern in normalized:
             intent.date_from = intent.date_to = today + timedelta(days=offset)
             break
+    if re.search(r"на (?:этой|текущей) неделе", normalized):
+        intent.date_from = today
+        intent.date_to = today + timedelta(days=6 - today.weekday())
     if "выходн" in normalized:
         intent.date_from = today if today.weekday() == 6 else today + timedelta(days=(5 - today.weekday()) % 7)
         intent.date_to = intent.date_from + timedelta(days=int(intent.date_from.weekday() == 5))
@@ -88,8 +91,7 @@ async def interpret(query, today, cities, categories, use_model=True):
         query,
     )
     if parsed:
-        if parsed.city not in cities:
-            parsed.city = None
+        parsed.city = None
         if parsed.category not in categories or (parsed.category == "children" and intent.age is not None):
             parsed.category = None
         for field in ("date_from", "date_to"):
@@ -193,12 +195,14 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
     if end and intent.date_to != intent.date_from:
         criteria.append(f"по {end:%d.%m}")
     if intent.budget is not None:
-        criteria.append(f"минимальная цена билета до {intent.budget} ₽")
+        criteria.append("бесплатно" if intent.budget == 0 else f"минимальная цена билета до {intent.budget} ₽")
     if intent.age is not None:
         criteria.append(f"маркировка до {intent.age}+ включительно")
     if family:
         criteria.append("детские и школьные мероприятия")
     explanation = "Ближайшие события" if events else "Подходящих событий в каталоге пока нет"
+    if intent.budget == 0 and not events:
+        explanation = "Бесплатных событий по этому запросу в каталоге пока нет. Попробуйте изменить даты или бюджет."
     if family and not events:
         explanation = "В каталоге нет детских событий с такими условиями. Попробуйте другую дату или бюджет."
     criteria = [part for part in criteria if part]
