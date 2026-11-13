@@ -6,13 +6,13 @@ from uuid import UUID
 
 import httpx
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, update
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import crud, models, schemas
+from app import models
 from app.database import get_db
 from app.routers.auth import find_user, session_digest
 
@@ -77,53 +77,4 @@ async def unlink_telegram(email: str = Depends(account), db: AsyncSession = Depe
     await db.execute(update(models.Preferences).where(models.Preferences.email == email).values(
         telegram_chat=None, weekly=False, link_hash=None, link_expires=None,
     ))
-    return {"ok": True}
-
-
-class PollInput(BaseModel):
-    ids: list[UUID] = Field(min_length=2, max_length=10)
-
-
-class VoteInput(BaseModel):
-    event_id: UUID
-
-
-@router.post("/polls")
-async def create_poll(payload: PollInput, db: AsyncSession = Depends(get_db)):
-    events = await crud.get_events(schemas.EventFilter(ids=payload.ids, date_from=datetime.now(timezone.utc)), limit=10)
-    if len(events) != len(payload.ids):
-        raise HTTPException(422, "Выберите от двух разных предстоящих событий")
-    poll = models.Poll(options=[event.model_dump(mode="json") for event in events])
-    db.add(poll)
-    await db.flush()
-    return {"id": poll.id}
-
-
-@router.get("/polls/{poll_id}")
-async def get_poll(poll_id: UUID, response: Response, afisha_voter: str | None = Cookie(None), db: AsyncSession = Depends(get_db)):
-    poll = await db.get(models.Poll, poll_id)
-    if poll is None:
-        raise HTTPException(404, "Подборка не найдена")
-    if not afisha_voter:
-        afisha_voter = secrets.token_urlsafe(32)
-        response.set_cookie("afisha_voter", afisha_voter, max_age=2592000, httponly=True, samesite="lax",
-                            secure=os.getenv("AUTH_SECURE_COOKIE") == "true")
-    counts = dict((await db.execute(select(models.PollVote.event_id, func.count()).where(
-        models.PollVote.poll_id == poll_id,
-    ).group_by(models.PollVote.event_id))).all())
-    vote = await db.get(models.PollVote, (poll_id, session_digest(afisha_voter)))
-    return {"events": poll.options, "counts": counts, "vote": vote.event_id if vote else None}
-
-
-@router.put("/polls/{poll_id}/vote")
-async def vote_poll(poll_id: UUID, payload: VoteInput, afisha_voter: str | None = Cookie(None), db: AsyncSession = Depends(get_db)):
-    poll = await db.get(models.Poll, poll_id)
-    if not poll or not any(event["id"] == str(payload.event_id) for event in poll.options):
-        raise HTTPException(404, "Событие отсутствует в подборке")
-    if not afisha_voter:
-        raise HTTPException(409, "Откройте подборку перед голосованием")
-    await db.execute(insert(models.PollVote).values(
-        poll_id=poll_id, voter=session_digest(afisha_voter), event_id=payload.event_id,
-    ).on_conflict_do_update(index_elements=[models.PollVote.poll_id, models.PollVote.voter],
-                            set_={"event_id": payload.event_id}))
     return {"ok": True}

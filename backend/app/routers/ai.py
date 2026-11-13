@@ -1,3 +1,4 @@
+from typing import Literal
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ ZONE = ZoneInfo("Asia/Yekaterinburg")
 
 
 class QueryIn(BaseModel):
+    preset: Literal["family", "friends", "free"] | None = None
     previous_text: str | None = Field(default=None, max_length=500)
     text: str = Field(min_length=1, max_length=500)
 
@@ -140,7 +142,7 @@ async def rank_events(query, events):
         {
             "position": position,
             "title": event.title,
-            "description": (event.description or "")[:240],
+            "description": (event.description or "")[:160],
             "category": event.category.name if event.category else None,
         }
         for position, event in enumerate(events, start=1)
@@ -166,13 +168,26 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
     now = datetime.now(ZONE)
     cities = {city.name: city.id for city in await db.scalars(select(models.City))}
     categories = {category.slug: category for category in await db.scalars(select(models.Category))}
-    intent, model_parsed = await interpret(payload.text, now.date(), cities, categories)
-    if payload.previous_text:
+    if payload.preset:
+        today = now.date()
+        days = (5 - today.weekday()) % 7 if today.weekday() != 6 else 0
+        weekend = today + timedelta(days=days)
+        intent = SearchIntent(
+            date_from=today if payload.preset == "free" else weekend,
+            date_to=today + timedelta(days=13) if payload.preset == "free"
+            else weekend + timedelta(days=weekend.weekday() == 5),
+            budget=0 if payload.preset == "free" else None,
+            age=6 if payload.preset == "family" else None,
+        )
+        model_parsed = False
+    else:
+        intent, model_parsed = await interpret(payload.text, now.date(), cities, categories)
+    if payload.previous_text and not payload.preset:
         previous, _ = await interpret(payload.previous_text, now.date(), cities, categories, use_model=False)
         intent = SearchIntent.model_validate({
             **previous.model_dump(exclude_none=True), **intent.model_dump(exclude_none=True),
         })
-    context = " ".join(filter(None, (payload.previous_text, payload.text)))
+    context = payload.text if payload.preset else " ".join(filter(None, (payload.previous_text, payload.text)))
     family = intent.age is not None or bool(re.search(r"реб[её]н|дет(ьми|ей|ям)|семейн", context.lower()))
     if family and intent.age is None:
         intent.age = 6
@@ -185,9 +200,18 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
         family_only=family,
     )
     missing_scope = (intent.category and category is None) or (intent.city and not filters.city_id)
-    events = [] if missing_scope else await crud.get_events(filters, limit=12 if model_parsed else 5)
+    events = [] if missing_scope else await crud.get_events(filters, limit=8 if model_parsed or payload.preset else 5)
     model_ranked = False
-    if model_parsed and events:
+    widened = False
+    if not events and payload.preset == "family":
+        nearby = filters.model_copy(update={"date_from": now, "date_to": now + timedelta(days=14)})
+        events = await crud.get_events(nearby, limit=12)
+        if events:
+            filters = nearby
+            widened = True
+            intent.date_from, intent.date_to = now.date(), nearby.date_to.date()
+            end = nearby.date_to
+    if (model_parsed or payload.preset) and events:
         events, model_ranked = await rank_events(context, events)
     criteria = [intent.city, category.name if category else intent.category]
     if intent.date_from:
@@ -201,6 +225,8 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
     if family:
         criteria.append("детские и школьные мероприятия")
     explanation = "Ближайшие события" if events else "Подходящих событий в каталоге пока нет"
+    if widened:
+        explanation = "На выходных подходящих семейных событий нет. Вот ближайшие варианты на две недели."
     if intent.budget == 0 and not events:
         explanation = "Бесплатных событий по этому запросу в каталоге пока нет. Попробуйте изменить даты или бюджет."
     if family and not events:
@@ -210,5 +236,5 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
         explanation += " · " + ", ".join(criteria)
     return {
         "query": payload.text, "filters_applied": filters, "explanation": explanation,
-        "events": events, "model_used": model_parsed, "model_ranked": model_ranked,
+        "events": events, "model_used": model_parsed or model_ranked, "model_ranked": model_ranked,
     }

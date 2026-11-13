@@ -54,7 +54,6 @@ class EventCreate(EventBase):
 
 # ---------- Фильтры для GET /events ----------
 class EventFilter(BaseModel):
-    ids: list[UUID] | None = None
     family_only: bool = False
     city_id: Optional[UUID] = None
     category_id: Optional[UUID] = None

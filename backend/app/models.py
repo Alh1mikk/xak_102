@@ -161,16 +161,3 @@ class Preferences(Base):
     link_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
     link_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
     sent_week: Mapped[Optional[str]] = mapped_column(Text)
-
-
-class Poll(Base):
-    __tablename__ = "event_polls"
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    options: Mapped[list] = mapped_column(JSONB)
-
-
-class PollVote(Base):
-    __tablename__ = "event_poll_votes"
-    poll_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("event_polls.id", ondelete="CASCADE"), primary_key=True)
-    voter: Mapped[str] = mapped_column(Text, primary_key=True)
-    event_id: Mapped[uuid.UUID] = mapped_column(Uuid)

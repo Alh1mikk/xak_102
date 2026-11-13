@@ -4,7 +4,7 @@ import { eventParams, priceLabel, webUrl } from './catalog.js'
 import '../style.css'
 import EventMap from './Map.jsx'
 import Account from './Account.jsx'
-import Poll from './Poll.jsx'
+import { mapLinks } from './mapLinks.js'
 
 const initialFilters = { city_id: '', category_id: '', date: '', price_max: '', q: '' }
 const dateFormat = new Intl.DateTimeFormat('ru-RU', {
@@ -67,8 +67,6 @@ function App() {
   const [messages, setMessages] = useState([])
   const [user, setUser] = useState(null)
   const [selected, setSelected] = useState([])
-  const [pollLink, setPollLink] = useState('')
-  const [pollError, setPollError] = useState('')
   const [route, setRoute] = useState(null)
   const [routing, setRouting] = useState(false)
   const [routeError, setRouteError] = useState('')
@@ -111,19 +109,18 @@ function App() {
     setFilters(next)
   }
 
-  async function search(event) {
-    event.preventDefault()
-    if (!query.trim() || searching) return
+  async function search(text, preset = null) {
+    if (!text.trim() || searching) return
+    text = text.trim()
     setSearching(true)
-    const text = query.trim()
     setQuery('')
-    setMessages(current => [...current, { text }])
+    setMessages(current => preset ? [{ text }] : [...current, { text }])
     setSearchError('')
     try {
-      const previous = messages.filter(message => message.text).map(message => message.text).join(' ').slice(0, 500)
+      const previous = preset ? null : messages.filter(message => message.text).map(message => message.text).join(' ').slice(0, 500)
       const reply = await api('/ai/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, previous_text: previous }),
+        body: JSON.stringify({ text, previous_text: previous, preset }),
       })
       setMessages(current => [...current, { reply }])
     } catch (error) {
@@ -167,13 +164,14 @@ function App() {
     </header>
     <main>
       {page === 'chat' && <section className="wrap page chat">
-        <h1>ИИ-подборка</h1>
+        <h1 className="page-reveal">ИИ-подборка <span className="page-star" aria-hidden="true">✦</span></h1>
         {messages.length === 0 && <p>Расскажите, куда хочется сходить и с кем.</p>}
         <div className="chat-log" aria-live="polite">
           {messages.map((message, index) => message.text
             ? <p className="bubble mine" key={index}>{message.text}</p>
-            : <div className="bubble" key={index}>
+            : <div className="bubble page-reveal" key={index}>
                 <p>{message.reply.explanation}</p>
+                {message.reply.events.length === 0 && <a className="route-choice empty-link" href="#events">Смотреть все события ↗</a>}
                 <div className="chat-cards">{message.reply.events.map(event => <div className="choice" key={event.id}>
                   <Poster event={event} />
                   {event.latitude != null && <button className="route-choice" aria-pressed={selected.some(item => item.id === event.id)} disabled={routing} onClick={() => {
@@ -188,12 +186,12 @@ function App() {
         </div>
         <div className="profile-actions" aria-label="Шаблоны запросов">
           {[
-            ['С семьёй', 'Куда сходить с ребёнком на выходных?'],
-            ['С друзьями', 'Какие концерты есть на выходных?'],
-            ['Бесплатно', 'Какие бесплатные события есть на этой неделе?'],
-          ].map(([label, text]) => <button type="button" key={label} onClick={() => setQuery(text)}>{label}</button>)}
+            ['С семьёй', 'Куда сходить с ребёнком на выходных?', 'family'],
+            ['С друзьями', 'Куда сходить с друзьями на выходных?', 'friends'],
+            ['Бесплатно', 'Какие бесплатные события есть в ближайшие две недели?', 'free'],
+          ].map(([label, text, preset]) => <button type="button" key={label} disabled={searching} onClick={() => search(text, preset)}>{label}</button>)}
         </div>
-        <form className="search" onSubmit={search}>
+        <form className="search" onSubmit={event => { event.preventDefault(); search(query) }}>
           <label htmlFor="query">Ваш запрос</label>
           <div className="search-line">
             <input id="query" value={query} maxLength={500} required onChange={e => setQuery(e.target.value)} placeholder="Куда сходить с ребёнком?" />
@@ -210,22 +208,13 @@ function App() {
           {routeError && <p role="status">{routeError}</p>}
           {route && <p>{(route.distance / 1000).toFixed(1)} км · {Math.ceil(route.duration / 60)} мин пешком</p>}
           <EventMap events={orderedStops(selected)} route={route} />
-          {selected.length >= 2 && selected.length <= 10 && <button className="route-choice" onClick={async () => {
-            setPollError('')
-            try {
-              const poll = await api('/polls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: selected.map(event => event.id) }) })
-              setPollLink(location.origin + location.pathname + '#poll/' + poll.id)
-            } catch (error) { setPollError(error.message) }
-          }}>Создать голосование</button>}
-          {pollError && <p role="alert">{pollError}</p>}
-          {pollLink && <div className="profile-actions"><a href={pollLink}>Открыть голосование</a><button onClick={() => navigator.clipboard.writeText(pollLink).catch(() => setPollError('Скопируйте адрес из ссылки «Открыть голосование».'))}>Скопировать ссылку</button></div>}
+          {mapLinks(orderedStops(selected)).length > 0 && <div className="profile-actions" aria-label="Открыть маршрут в картах">
+            {mapLinks(orderedStops(selected)).map(({ name, url }) => <a key={name} href={url} target="_blank" rel="noreferrer">{name} ↗</a>)}
+          </div>}
         </section>}
       </section>}
-      {page.startsWith('poll/') && <Poll key={page} id={page.slice(5)} api={api} Poster={Poster} onRoute={events => {
-        setSelected(events); setRoute(null); setRouteError(''); location.hash = 'chat'
-      }} />}
       {page === 'account' && <Account api={api} user={user} setUser={setUser} reference={reference} />}
-      {!['chat', 'account'].includes(page) && !page.startsWith('poll/') && <section className="catalog page" id="catalog">
+      {!['chat', 'account'].includes(page) && <section className="catalog page" id="catalog">
         <div className="wrap">
           <section className="panorama">
             <img className="panorama-image" src="/toratau.jpg" alt="Шихан Торатау, Башкортостан" fetchPriority="high" />

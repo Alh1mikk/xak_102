@@ -126,3 +126,10 @@ footer{border-top:1px solid var(--rule);padding-block:20px;font-weight:700}
  @keyframes panorama-zoom{from{transform:scale(1.08)}to{transform:none}}
  @keyframes star-pop{from{opacity:0;transform:scale(.1) rotate(-70deg)}to{opacity:1;transform:none}}
 }
+
+.page-star{color:var(--green);display:inline-block;font-size:.55em;vertical-align:middle}
+.empty-link{display:inline-block}
+@media(prefers-reduced-motion:no-preference){
+  .page-reveal{animation:panorama-in .45s cubic-bezier(.2,.75,.25,1) both}
+  .page-star{animation:star-pop .65s .12s cubic-bezier(.2,.85,.32,1.35) both}
+}

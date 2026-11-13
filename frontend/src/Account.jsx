@@ -35,7 +35,7 @@ export default function Account({ api, user, setUser, reference }) {
   }
 
   return <section className="wrap page"><div className="account-panel">
-    <h1>{user && !sent ? 'Профиль' : 'Вход'}</h1>
+    <h1 className="page-reveal">{user && !sent ? 'Профиль' : 'Вход'} <span className="page-star" aria-hidden="true">✦</span></h1>
     {user && !sent ? <><p>{user.name}</p><button className="primary" onClick={async () => {
       try { await api('/auth/logout', { method: 'POST' }); setUser(null) } catch (error) { setError(error.message) }
     }}>Выйти</button><Preferences api={api} reference={reference} /></> : <form className="search" onSubmit={submit}>

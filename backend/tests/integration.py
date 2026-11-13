@@ -109,16 +109,6 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             saved = (await client.get("/api/preferences")).json()
             self.assertTrue(saved["weekly"])
             self.assertEqual(saved["price_max"], 0)
-            catalog = (await client.get("/api/events/")).json()
-            ids = [event["id"] for event in catalog]
-            poll = await client.post("/api/polls", json={"ids": ids})
-            poll.raise_for_status()
-            path = "/api/polls/" + poll.json()["id"]
-            self.assertEqual(len((await client.get(path)).json()["events"]), 2)
-            for event_id in ids:
-                self.assertEqual((await client.put(path + "/vote", json={"event_id": event_id})).status_code, 200)
-            result = (await client.get(path)).json()
-            self.assertEqual(result["counts"], {ids[-1]: 1})
             await client.post("/api/auth/logout")
             self.assertIsNone((await client.get("/api/auth/me")).json())
 
