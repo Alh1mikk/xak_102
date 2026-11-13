@@ -10,6 +10,7 @@ import httpx
 from app import crud, models, schemas
 from app.database import AsyncSessionLocal
 from app.region import refresh_verified_sources
+from app.routers.auth import code_digest
 
 
 class IntegrationTests(unittest.IsolatedAsyncioTestCase):
@@ -90,13 +91,13 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await client.get("/api/auth/me")).json(), {"name": "Тест"})
             self.assertEqual((await client.post("/api/auth/logout")).status_code, 200)
             self.assertIsNone((await client.get("/api/auth/me")).json())
-            email_token = "a" * 43
+            email_code = "012345"
             async with AsyncSessionLocal.begin() as db:
                 db.add(models.EmailUser(
-                    email="person@example.org", login_hash=hashlib.sha256(email_token.encode()).hexdigest(),
+                    email="person@example.org", login_hash="0:" + code_digest("person@example.org", email_code),
                     login_expires=datetime.now(timezone.utc) + timedelta(minutes=15),
                 ))
-            confirmation = {"email": "PERSON@example.org", "token": email_token}
+            confirmation = {"email": "PERSON@example.org", "code": email_code}
             login = await client.post("/api/auth/email/confirm", json=confirmation)
             login.raise_for_status()
             self.assertIn("HttpOnly", login.headers["set-cookie"])

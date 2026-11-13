@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,7 +104,7 @@ def set_session_cookie(response, session):
 
 
 def email_configured():
-    return all(os.getenv(key) for key in ("SMTP_HOST", "SMTP_FROM", "PUBLIC_WEB_URL"))
+    return all(os.getenv(key) for key in ("SMTP_HOST", "SMTP_FROM", "EMAIL_CODE_SECRET"))
 
 
 class EmailRequest(BaseModel):
@@ -112,7 +112,7 @@ class EmailRequest(BaseModel):
 
 
 class EmailConfirmation(EmailRequest):
-    token: str = Field(min_length=43, max_length=43)
+    code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 def normalized_email(value):
@@ -122,22 +122,24 @@ def normalized_email(value):
     return email
 
 
-def send_login_email(email, token):
-    from urllib.parse import urlencode
+def code_digest(email, code):
+    key = os.environ["EMAIL_CODE_SECRET"].encode()
+    return hmac.new(key, f"{email}:{code}".encode(), hashlib.sha256).hexdigest()
 
-    link = os.environ["PUBLIC_WEB_URL"].rstrip("/") + "/#account?" + urlencode({"email": email, "token": token})
+
+def send_login_email(email, code):
     message = EmailMessage()
     message["From"] = os.environ["SMTP_FROM"]
     message["To"] = email
-    message["Subject"] = "Вход во «Вне афиши»"
-    message.set_content(f"Откройте ссылку и подтвердите вход. Ссылка действует 15 минут.\n{link}")
+    message["Subject"] = "Код входа во «Вне афиши»"
+    message.set_content(f"Код входа: {code}\nОн действует 15 минут. Если вы не запрашивали код, проигнорируйте письмо.")
     context = ssl.create_default_context()
     implicit_tls = os.getenv("SMTP_IMPLICIT_TLS", "false") == "true"
     port = int(os.getenv("SMTP_PORT") or (465 if implicit_tls else 587))
     connection = (smtplib.SMTP_SSL(os.environ["SMTP_HOST"], port, context=context, timeout=10)
                   if implicit_tls else smtplib.SMTP(os.environ["SMTP_HOST"], port, timeout=10))
     with connection as smtp:
-        if not implicit_tls:
+        if not implicit_tls and os.getenv("SMTP_HOST") != "mailpit":
             smtp.starttls(context=context)
         if username := os.getenv("SMTP_USERNAME"):
             smtp.login(username, os.getenv("SMTP_PASSWORD", ""))
@@ -149,9 +151,9 @@ async def request_email(payload: EmailRequest, db: AsyncSession = Depends(get_db
     if not email_configured():
         raise HTTPException(503, "Отправка писем пока не настроена")
     email = normalized_email(payload.email)
-    token = secrets.token_urlsafe(32)
+    code = f"{secrets.randbelow(1000000):06d}"
     now = datetime.now(timezone.utc)
-    fields = dict(login_hash=session_digest(token), login_expires=now + timedelta(minutes=15))
+    fields = dict(login_hash="0:" + code_digest(email, code), login_expires=now + timedelta(minutes=15))
     saved = await db.scalar(insert(EmailUser).values(email=email, **fields).on_conflict_do_update(
         index_elements=[EmailUser.email], set_=fields,
         where=or_(EmailUser.login_expires.is_(None), EmailUser.login_expires <= now + timedelta(minutes=14)),
@@ -159,7 +161,7 @@ async def request_email(payload: EmailRequest, db: AsyncSession = Depends(get_db
     if not saved:
         raise HTTPException(429, "Повторите запрос через минуту")
     try:
-        await asyncio.to_thread(send_login_email, email, token)
+        await asyncio.to_thread(send_login_email, email, code)
     except (OSError, ValueError, smtplib.SMTPException):
         raise HTTPException(503, "Не удалось отправить письмо. Попробуйте позже.")
     return {"ok": True}
@@ -167,15 +169,23 @@ async def request_email(payload: EmailRequest, db: AsyncSession = Depends(get_db
 
 @router.post("/email/confirm")
 async def confirm_email(payload: EmailConfirmation, response: Response, db: AsyncSession = Depends(get_db)):
+    if not email_configured():
+        raise HTTPException(503, "Вход по почте пока не настроен")
     email = normalized_email(payload.email)
-    session = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
-    verified = await db.scalar(update(EmailUser).where(
-        EmailUser.email == email, EmailUser.login_hash == session_digest(payload.token),
-        EmailUser.login_expires > now,
-    ).values(login_hash=None, login_expires=None, session_hash=session_digest(session),
-             session_expires=now + timedelta(seconds=SESSION_AGE)).returning(EmailUser.email))
-    if not verified:
-        raise HTTPException(401, "Ссылка недействительна или уже использована")
+    user = await db.get(EmailUser, email, with_for_update=True)
+    if not user or not user.login_hash or ":" not in user.login_hash or user.login_expires <= now:
+        raise HTTPException(401, "Код истёк или уже использован")
+    attempts, expected = user.login_hash.split(":", 1)
+    if int(attempts) >= 5:
+        raise HTTPException(429, "Лимит попыток исчерпан. Запросите новый код.")
+    if not secrets.compare_digest(code_digest(email, payload.code), expected):
+        user.login_hash = f"{int(attempts) + 1}:{expected}"
+        await db.commit()
+        raise HTTPException(401, "Неверный код")
+    session = secrets.token_urlsafe(32)
+    user.login_hash = user.login_expires = None
+    user.session_hash = session_digest(session)
+    user.session_expires = now + timedelta(seconds=SESSION_AGE)
     set_session_cookie(response, session)
-    return {"name": verified}
+    return {"name": user.email}

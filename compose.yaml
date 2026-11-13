@@ -4,6 +4,7 @@ x-backend: &backend
   environment:
     DATABASE_URL: postgresql+asyncpg://afisha:afisha@db:5432/afisha
     DATABASE_SSL: disable
+    EMAIL_CODE_SECRET: ${EMAIL_CODE_SECRET:-}
     SMTP_HOST: ${SMTP_HOST:-}
     SMTP_PORT: ${SMTP_PORT:-}
     SMTP_FROM: ${SMTP_FROM:-}

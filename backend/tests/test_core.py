@@ -78,3 +78,19 @@ class BotTests(unittest.TestCase):
         }]})
         self.assertIn("14.11 18:00 · Бесплатно", reply)
         self.assertIn("https://example.org/show", reply)
+
+
+class WidgetTests(unittest.IsolatedAsyncioTestCase):
+    async def test_widget_escapes_html_and_falls_back(self):
+        from unittest.mock import AsyncMock
+        from app.bot import results_widget, send_results
+
+        result = {"explanation": "Подборка", "events": [{
+            "title": "<script>alert(1)</script>", "start_at": "2026-11-14T13:00:00Z",
+            "price_min": 0, "address": "Уфа", "source_urls": ["https://example.org/show"],
+        }]}
+        self.assertNotIn("<script>", results_widget(result))
+        self.assertIn("&lt;script&gt;", results_widget(result))
+        telegram = AsyncMock(side_effect=[RuntimeError("unsupported"), {}])
+        await send_results(telegram, 123, result, True)
+        self.assertEqual([call.args[0] for call in telegram.await_args_list], ["sendWidget", "sendMessage"])

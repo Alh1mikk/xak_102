@@ -24,7 +24,7 @@ async def connect_chat(token, chat_id):
         return False
 
 
-async def weekly_round(telegram, format_results):
+async def weekly_round(send_results):
     now = datetime.now(ZONE)
     week = now.strftime("%G-%V")
     if now.weekday() != 3 or now.hour < 18:
@@ -43,19 +43,19 @@ async def weekly_round(telegram, format_results):
                     **prefs.filters, date_from=now, date_to=now + timedelta(days=7),
                 ), limit=5)
                 if events:
-                    await telegram("sendMessage", chat_id=prefs.telegram_chat, text=format_results({
+                    await send_results(prefs.telegram_chat, {
                         "explanation": "Ваша подборка на неделю",
                         "events": [event.model_dump(mode="json") for event in events],
-                    }))
+                    })
                     prefs.sent_week = week
         except Exception as error:
             logging.warning("Сбой доставки подборки (%s)", type(error).__name__)
 
 
-async def weekly_loop(telegram, format_results):
+async def weekly_loop(send_results):
     while True:
         try:
-            await weekly_round(telegram, format_results)
+            await weekly_round(send_results)
         except Exception as error:
             logging.warning("Сбой еженедельной подборки (%s)", type(error).__name__)
         await asyncio.sleep(300)

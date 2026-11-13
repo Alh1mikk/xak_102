@@ -7,9 +7,7 @@ export default function Account({ api, user, setUser, reference }) {
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState('')
-  const params = new URLSearchParams(location.hash.split('?')[1])
-  const token = params.get('token')
-  const linkedEmail = params.get('email')
+  const [code, setCode] = useState('')
 
   useEffect(() => {
     api('/auth/config').then(config => setEnabled(config.email_enabled)).catch(() => setEnabled(false))
@@ -20,12 +18,13 @@ export default function Account({ api, user, setUser, reference }) {
     setBusy(true)
     setError('')
     try {
-      const response = await api(token ? '/auth/email/confirm' : '/auth/email/request', {
+      const response = await api(sent ? '/auth/email/confirm' : '/auth/email/request', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(token ? { email: linkedEmail, token } : { email }),
+        body: JSON.stringify(sent ? { email, code } : { email }),
       })
-      if (token) {
-        history.replaceState(null, '', '#account')
+      if (sent) {
+        setSent(false)
+        setCode('')
         setUser(response)
       } else setSent(true)
     } catch (error) {
@@ -36,18 +35,20 @@ export default function Account({ api, user, setUser, reference }) {
   }
 
   return <section className="wrap page"><div className="account-panel">
-    <h1>{user && !token ? 'Профиль' : 'Вход'}</h1>
-    {user && !token ? <><p>{user.name}</p><button className="primary" onClick={async () => {
+    <h1>{user && !sent ? 'Профиль' : 'Вход'}</h1>
+    {user && !sent ? <><p>{user.name}</p><button className="primary" onClick={async () => {
       try { await api('/auth/logout', { method: 'POST' }); setUser(null) } catch (error) { setError(error.message) }
     }}>Выйти</button><Preferences api={api} reference={reference} /></> : <form className="search" onSubmit={submit}>
-      {token ? <p>Подтвердите вход для {linkedEmail}.</p> : <>
-        <p>Пришлём одноразовую ссылку для входа.</p>
+      {sent ? <><p>Код отправлен на {email}. Он действует 15 минут.</p>
+        <label htmlFor="code">Код из письма</label><input id="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required value={code} onChange={e => setCode(e.target.value)} />
+        <button type="button" onClick={() => { setSent(false); setCode(''); setError('') }}>Другой адрес или новый код</button></> : <>
+        <p>Пришлём шестизначный код для входа.</p>
         <label htmlFor="email">Почта</label>
         <input id="email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={e => { setEmail(e.target.value); setSent(false) }} />
       </>}
-      <button className="primary" disabled={busy || (!token && !enabled)} type="submit">{token ? 'Подтвердить вход' : 'Получить ссылку'}</button>
-      {enabled === false && !token && <p role="status">Отправка писем пока не настроена.</p>}
-      {sent && <p role="status">Проверьте почту. Ссылка действует 15 минут.</p>}
+      <button className="primary" disabled={busy || (!sent && !enabled)} type="submit">{sent ? 'Подтвердить вход' : 'Получить код'}</button>
+      {enabled === false && !sent && <p role="status">Отправка писем пока не настроена.</p>}
+
     </form>}
     {error && <p role="alert">{error}</p>}
   </div></section>

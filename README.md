@@ -55,4 +55,12 @@ GitHub Actions прогоняет тесты на pull request и push в main. 
 
 ## Вход по почте
 
-В профиле пользователь запрашивает одноразовую ссылку. Настройка SMTP и сессий описана в [документации для Confluence](docs/confluence.md#вход-по-почте). Для бота достаточно `TELEGRAM_BOT_TOKEN` и профиля Compose `telegram`.
+В профиле пользователь запрашивает одноразовый код. Настройка SMTP и сессий описана в [документации для Confluence](docs/confluence.md#вход-по-почте). Для бота достаточно `TELEGRAM_BOT_TOKEN` и профиля Compose `telegram`.
+
+### SMTP Gmail или Яндекс Почты
+
+В корневом `.env` задайте `SMTP_HOST=smtp.gmail.com` или `SMTP_HOST=smtp.yandex.ru`, `SMTP_PORT=465` и `SMTP_IMPLICIT_TLS=true`. В `SMTP_USERNAME` и `SMTP_FROM` укажите полный адрес отправителя, в `SMTP_PASSWORD` — пароль приложения. Для `EMAIL_CODE_SECRET` сгенерируйте случайное значение командой `openssl rand -hex 32`.
+
+Переключение на реальный SMTP: `docker compose --profile telegram up -d --remove-orphans`. Для локальной проверки с Mailpit: `docker compose -f compose.yaml -f compose.mail-test.yaml --profile telegram up -d`. Письма в локальном режиме доступны на http://127.0.0.1:8025.
+
+В личных чатах бот отправляет подборки через Telegram `sendWidget`. Если Telegram отклоняет виджет, бот отправляет текстовую карточку.
