@@ -48,7 +48,7 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
         if c:
             city_id = c.id
 
-    events = await crud.get_events(db, schemas.EventFilter(
+    events = await crud.get_events(schemas.EventFilter(
         city_id=city_id, date_from=date_from, date_to=date_to,
         price_max=price_max, age_max=age_max,
     ), limit=5)

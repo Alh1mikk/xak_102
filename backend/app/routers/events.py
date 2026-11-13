@@ -1,16 +1,13 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query
 from datetime import datetime
 from uuid import UUID
 from typing import Optional
-from app.database import get_db
 from app import crud, schemas
 
 router = APIRouter(prefix="/events", tags=["events"])
 
 @router.get("/", response_model=list[schemas.EventOut])
 async def list_events(
-    db: AsyncSession = Depends(get_db),
     city_id: Optional[UUID] = None,
     category_id: Optional[UUID] = None,
     date_from: Optional[datetime] = None,
@@ -26,4 +23,4 @@ async def list_events(
         date_from=date_from, date_to=date_to,
         price_max=price_max, age_max=age_max, q=q,
     )
-    return await crud.get_events(db, filters, limit=limit, offset=offset)
+    return await crud.get_events(filters, limit=limit, offset=offset)
