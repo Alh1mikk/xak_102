@@ -132,3 +132,11 @@ class EventSource(Base):
 
     event: Mapped['Event'] = relationship('Event', back_populates='event_sources')
     source: Mapped['Source'] = relationship('Source', back_populates='event_sources')
+
+class TelegramUser(Base):
+    __tablename__ = "telegram_users"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    session_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    session_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))

@@ -14,3 +14,7 @@ venv/
 
 # Системный мусор
 .DS_Store
+node_modules/
+dist/
+test-results/
+playwright-report/

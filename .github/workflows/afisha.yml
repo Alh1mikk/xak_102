@@ -1,0 +1,67 @@
+name: Afisha CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test with Docker
+        run: docker compose -f compose.test.yaml -p afisha-ci up --build --abort-on-container-exit --exit-code-from integration
+      - name: Remove test containers
+        if: always()
+        run: docker compose -f compose.test.yaml -p afisha-ci down -v
+
+  publish:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish tested revision to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          for component in backend frontend; do
+            image="$repository-$component:$GITHUB_SHA"
+            docker build -t "$image" "$component"
+            docker push "$image"
+          done
+
+  deploy:
+    needs: publish
+    if: vars.AFISHA_DEPLOY == 'true'
+    runs-on: [self-hosted, linux, afisha]
+    environment: production
+    concurrency:
+      group: afisha-production
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy images
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AFISHA_ENV_FILE: ${{ vars.AFISHA_ENV_FILE }}
+        run: |
+          set -eu
+          repository="ghcr.io/${GITHUB_REPOSITORY,,}"
+          export BACKEND_IMAGE="$repository-backend:$GITHUB_SHA"
+          export WEB_IMAGE="$repository-frontend:$GITHUB_SHA"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker compose --env-file "${AFISHA_ENV_FILE:?Set AFISHA_ENV_FILE}" -p afisha-prod pull --policy always
+          docker compose --env-file "$AFISHA_ENV_FILE" -p afisha-prod up -d --no-build --wait --wait-timeout 900

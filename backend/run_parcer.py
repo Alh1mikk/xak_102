@@ -1,81 +1,41 @@
 import asyncio
-import httpx
-import asyncpg
-import os
-import json
 import math
-from datetime import datetime, timezone
-from dotenv import load_dotenv
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-load_dotenv()
+import httpx
+from sqlalchemy import select, text
+
+from app import crud, models, schemas
+from app.database import AsyncSessionLocal
+from app.region import refresh_verified_sources
+
+SOURCE_URL = "https://ufa.burocultura.ru/api/events"
+LOCAL_ZONE = ZoneInfo("Asia/Yekaterinburg")
+CATEGORIES = {
+    "concert": "Концерты", "theater": "Театр", "lecture": "Лекции",
+    "children": "Детям", "museum_visit": "Музеи", "excursion": "Экскурсии",
+}
 
 
-def parse_price(val):
-    """Безопасный парсинг цены с сохранением нуля для бесплатных событий."""
-    if val is None or val == "":
-        return None
+def parse_price(value):
     try:
-        return int(math.ceil(float(val)))
-    except (ValueError, TypeError):
+        price = math.ceil(float(value))
+    except (ValueError, TypeError, OverflowError):
         return None
+    return price if price >= 0 else None
 
 
-def extract_event_fields(item: dict) -> dict:
-    """Извлекает и нормализует поля из JSON-объекта события."""
-    # 1. Берем ближайший предстоящий сеанс, если его нет — общую дату старта
-    date_str = item.get("kassirNextShowAt") or item.get("dateStart")
-    if date_str:
-        start_at = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-    else:
-        start_at = datetime.now(timezone.utc)
-
-    # 2. Возрастное ограничение ("12+" -> 12)
-    age_str = item.get("ageRestriction")
-    digits = "".join(filter(str.isdigit, str(age_str))) if age_str else ""
-    age_limit = int(digits) if digits else None
-
-    # 3. Цены: берем priceFrom, а priceMax ищем во вложенном списке сеансов kassirShowsCard
-    shows = item.get("kassirShowsCard") or []
-    max_prices = [
-        p for s in shows if (p := parse_price(s.get("priceMax"))) is not None
-    ]
-    min_prices = [
-        p for s in shows if (p := parse_price(s.get("priceMin"))) is not None
-    ]
-
-    price_min = parse_price(item.get("priceFrom"))
-    if price_min is None and min_prices:
-        price_min = min(min_prices)
-
-    if item.get("isFree") is True:
-        price_min = 0
-        price_max = 0
-    else:
-        price_max = max(max_prices) if max_prices else price_min
-
-    title = (item.get("title") or "Без названия").strip()
-    description = (item.get("description") or "").strip()
-    image_url = (item.get("imageUrl") or "").strip()
-    external_id = item.get("slug") or str(item.get("id"))
-    source_url = f"https://ufa.burocultura.ru/events/{external_id}"
-
-    return {
-        "title": title,
-        "description": description,
-        "start_at": start_at,
-        "price_min": price_min,
-        "price_max": price_max,
-        "age_limit": age_limit,
-        "image_url": image_url,
-        "external_id": external_id,
-        "source_url": source_url,
-        "raw_json": json.dumps(item, ensure_ascii=False),
-    }
+def parse_date(value):
+    if not value:
+        return None
+    date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return date if date.tzinfo else date.replace(tzinfo=LOCAL_ZONE)
 
 
 async def fetch_events_data() -> list:
-    """Получает список событий с API с ретраями и fallback в локальный кэш."""
-    url = "https://ufa.burocultura.ru/api/events"
+    """Получает свежий список событий с повторными попытками."""
+    url = SOURCE_URL
     headers = {
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
@@ -84,205 +44,90 @@ async def fetch_events_data() -> list:
         "Origin": "https://ufa.burocultura.ru/api/events",
     }
 
-    cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "events_cache.json")
-    data = None
-
     async with httpx.AsyncClient(timeout=30, headers=headers, follow_redirects=True) as client:
         for attempt in range(1, 4):
             try:
-                r = await client.get(url)
-                print(f"   Попытка {attempt}: статус {r.status_code}, длина ответа {len(r.text)} байт")
-                if r.status_code == 200 and r.text.strip().startswith("["):
-                    data = r.json()
-                    with open(cache_path, "w", encoding="utf-8") as f:
-                        json.dump(data, f, ensure_ascii=False)
-                    break
-                else:
-                    print(f"   ⚠️ Неожиданный ответ: {r.text[:200]!r}")
-            except Exception as e:
-                print(f"   ⚠️ Ошибка запроса: {type(e).__name__}: {e}")
-
-            if attempt < 3:
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+                    raise ValueError("Ожидался список карточек")
+                return data
+            except (httpx.HTTPError, ValueError) as error:
+                print(f"Бюро Культуры, попытка {attempt}: {error}")
+                if attempt == 3:
+                    raise
                 await asyncio.sleep(5 * attempt)
-
-    if data is None:
-        if os.path.exists(cache_path):
-            print("   📂 Загружаем данные из локального кэша events_cache.json...")
-            with open(cache_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            raise RuntimeError("Не удалось получить JSON от API за 3 попытки и кэш отсутствует.")
-
-    return data
 
 
 async def parse_burocultura():
-    print("1. Начинаем запрос к API...")
     data = await fetch_events_data()
-    print(f"2. Данные получены! Событий в JSON: {len(data)}")
-
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError("Не задана переменная окружения DATABASE_URL")
-    db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
-
-    print("3. Подключаемся к базе данных через asyncpg...")
-    conn = await asyncpg.connect(
-        db_url,
-        ssl="require",
-        timeout=60,
-        command_timeout=60,
-        statement_cache_size=0,
-    )
-    print("4. Подключение установлено!")
-
-    try:
-        # Получаем или создаем источник
-        source_id = await conn.fetchval(
-            "SELECT id FROM sources WHERE base_url = $1",
-            "https://ufa.burocultura.ru/api/events",
-        )
-        if not source_id:
-            source_id = await conn.fetchval(
-                "INSERT INTO sources (name, base_url, is_active) VALUES ($1, $2, true) RETURNING id",
-                "burocultura",
-                "https://ufa.burocultura.ru/api/events",
-            )
-            print(f"5. Источник создан: {source_id}")
-        else:
-            print(f"5. Источник найден: {source_id}")
-
-        # Загружаем все существующие external_id одним запросом
-        existing_rows = await conn.fetch(
-            "SELECT external_id, event_id FROM event_sources WHERE source_id = $1",
-            source_id,
-        )
-        existing_map = {row["external_id"]: row["event_id"] for row in existing_rows}
-        print(f"6. Найдено в базе существующих событий: {len(existing_map)}")
-
-        to_update_events = []
-        to_update_sources = []
-        to_insert = []
-
+    async with AsyncSessionLocal.begin() as db:
+        await db.execute(text("SELECT pg_advisory_xact_lock(102)"))
+        source = await crud.get_or_create_source(db, "Бюро Культуры", SOURCE_URL)
+        cities = {city.name: city for city in await db.scalars(select(models.City))}
+        categories = {category.slug: category for category in await db.scalars(select(models.Category))}
+        created = updated = 0
+        seen = set()
         for item in data:
+            external_id = item.get("slug") or item.get("id")
+            title = (item.get("title") or "").strip()
+            if not external_id or not title or external_id in seen:
+                continue
             try:
-                f = extract_event_fields(item)
-                ext_id = f["external_id"]
+                start = parse_date(item.get("kassirNextShowAt") or item.get("dateStart"))
+            except ValueError:
+                continue
+            if start is None:
+                continue
+            seen.add(external_id)
 
-                if ext_id in existing_map:
-                    ev_id = existing_map[ext_id]
-                    to_update_events.append((
-                        f["title"],
-                        f["description"],
-                        f["start_at"],
-                        f["price_min"],
-                        f["price_max"],
-                        f["age_limit"],
-                        f["image_url"],
-                        ev_id,
-                    ))
-                    to_update_sources.append((
-                        f["raw_json"],
-                        f["source_url"],
-                        ext_id,
-                        source_id,
-                    ))
-                else:
-                    to_insert.append(f)
-            except Exception as e:
-                print(f"⚠️ Пропуск при разборе '{item.get('title')}': {e}")
+            city = None
+            if item.get("cityId") == "ufa":
+                city = cities.get("Уфа")
+                if city is None:
+                    city = cities["Уфа"] = models.City(name="Уфа")
+                    db.add(city)
+            slug = item.get("type")
+            category = categories.get(slug)
+            if category is None and slug in CATEGORIES:
+                category = categories[slug] = models.Category(slug=slug, name=CATEGORIES[slug])
+                db.add(category)
+            await db.flush()
 
-        async with conn.transaction():
-            if to_update_events:
-                print(f"7. Обновляем {len(to_update_events)} существующих событий...")
-                await conn.executemany(
-                    """
-                    UPDATE events
-                    SET title = $1,
-                        description = $2,
-                        start_at = $3,
-                        price_min = $4,
-                        price_max = $5,
-                        age_limit = $6,
-                        image_url = $7,
-                        status = 'published'
-                    WHERE id = $8
-                    """,
-                    to_update_events,
-                )
-                await conn.executemany(
-                    """
-                    UPDATE event_sources
-                    SET raw_data = $1,
-                        source_url = $2
-                    WHERE external_id = $3 AND source_id = $4
-                    """,
-                    to_update_sources,
-                )
-
-            if to_insert:
-                print(f"8. Добавляем {len(to_insert)} новых событий одним пакетом...")
-                
-                # Вставляем все 200 событий ОДНИМ SQL-запросом через unnest
-                inserted_rows = await conn.fetch(
-                    """
-                    INSERT INTO events (
-                        title, description, start_at, price_min, price_max, age_limit, image_url, status
-                    )
-                    SELECT 
-                        u.title, u.description, u.start_at, u.price_min, u.price_max, u.age_limit, u.image_url, 'published'
-                    FROM unnest(
-                        $1::text[],
-                        $2::text[],
-                        $3::timestamptz[],
-                        $4::int[],
-                        $5::int[],
-                        $6::int[],
-                        $7::text[]
-                    ) AS u(title, description, start_at, price_min, price_max, age_limit, image_url)
-                    RETURNING id
-                    """,
-                    [f["title"] for f in to_insert],
-                    [f["description"] for f in to_insert],
-                    [f["start_at"] for f in to_insert],
-                    [f["price_min"] for f in to_insert],
-                    [f["price_max"] for f in to_insert],
-                    [f["age_limit"] for f in to_insert],
-                    [f["image_url"] for f in to_insert],
-                )
-
-                # Теперь связываем полученные ID с таблицей event_sources тоже одним запросом
-                new_ids = [row["id"] for row in inserted_rows]
-                await conn.execute(
-                    """
-                    INSERT INTO event_sources (
-                        event_id, source_id, external_id, source_url, raw_data
-                    )
-                    SELECT 
-                        u.event_id, $1::uuid, u.external_id, u.source_url, u.raw_data::jsonb
-                    FROM unnest(
-                        $2::uuid[],
-                        $3::text[],
-                        $4::text[],
-                        $5::text[]
-                    ) AS u(event_id, external_id, source_url, raw_data)
-                    """,
-                    source_id,
-                    new_ids,
-                    [f["external_id"] for f in to_insert],
-                    [f["source_url"] for f in to_insert],
-                    [f["raw_json"] for f in to_insert],
-                )
-
-
-        print(f"✅ Готово! Добавлено: {len(to_insert)}, обновлено: {len(to_update_events)}.")
-
-    except Exception as global_e:
-        print(f"❌ ГЛОБАЛЬНАЯ ОШИБКА: {type(global_e).__name__}: {global_e}")
-        raise
-    finally:
-        if not conn.is_closed():
-            await conn.close()
+            venue = item.get("venue") or {}
+            organizer = item.get("organizer") or {}
+            matching_show = next(
+                (show for show in item.get("kassirShowsCard") or []
+                 if parse_date(show.get("dateStart")) == start),
+                {},
+            )
+            price = parse_price(matching_show.get("priceMin"))
+            if price is None:
+                price = parse_price(item.get("priceFrom"))
+            price_max = parse_price(matching_show.get("priceMax"))
+            if item.get("isFree"):
+                price = price_max = 0
+            if price is not None and price_max is not None and price_max < price:
+                price_max = None
+            age = str(item.get("ageRestriction") or "").rstrip("+")
+            if item.get("ageRestriction") == 0:
+                age = "0"
+            _, inserted = await crud.upsert_event(db, schemas.EventCreate(
+                title=title, description=item.get("description"), start_at=start,
+                price_min=price, price_max=price_max,
+                age_limit=int(age) if age.isdecimal() else None,
+                address=item.get("meetingPointAddress") or venue.get("address") or venue.get("name"),
+                organizer=organizer.get("name"), image_url=item.get("imageUrl"),
+                city_id=city.id if city else None, category_id=category.id if category else None,
+                status="published" if item.get("status") == "published" and item.get("isVisible") is not False else "draft",
+                source_id=source.id, external_id=str(external_id),
+                source_url=f"https://ufa.burocultura.ru/events/{external_id}", raw_data=item,
+            ))
+            created += inserted
+            updated += not inserted
+        await refresh_verified_sources(db)
+        print(f"Бюро Культуры: получено {len(data)}, добавлено {created}, обновлено {updated}")
 
 
 if __name__ == "__main__":

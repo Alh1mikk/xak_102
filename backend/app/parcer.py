@@ -97,7 +97,7 @@ async def parse_burocultura():
     print("3. Подключаемся к базе данных через asyncpg...")
     conn = await asyncpg.connect(
         db_url,
-        ssl="require",
+        ssl=os.getenv("DATABASE_SSL", "require"),
         timeout=60,
         command_timeout=60,
         statement_cache_size=0,  # Важно для Supabase / Neon / PgBouncer

@@ -1,0 +1,86 @@
+x-backend: &backend
+  image: ${BACKEND_IMAGE:-xak_102-backend}
+  build: ./backend
+  environment:
+    DATABASE_URL: postgresql+asyncpg://afisha:afisha@db:5432/afisha
+    DATABASE_SSL: disable
+    TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+    AUTH_SECURE_COOKIE: ${AUTH_SECURE_COOKIE:-false}
+    SOURCE_ADMIN_TOKEN: ${SOURCE_ADMIN_TOKEN:-}
+    OLLAMA_URL: ${OLLAMA_URL-http://ollama:11434}
+    OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+services:
+  web:
+    image: ${WEB_IMAGE:-xak_102-web}
+    build: ./frontend
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+  ollama-model:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    command: ["pull", "${OLLAMA_MODEL:-qwen2.5:7b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: on-failure
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: afisha
+      POSTGRES_USER: afisha
+      POSTGRES_PASSWORD: afisha
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "afisha", "-d", "afisha"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  api:
+    <<: *backend
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama-model:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  importer:
+    <<: *backend
+    command: ["python", "-m", "app.import_worker"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+  bot:
+    <<: *backend
+    profiles: ["telegram"]
+    command: ["python", "-m", "app.bot"]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: on-failure
+volumes:
+  postgres_data:
+  ollama_models:

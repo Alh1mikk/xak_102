@@ -14,7 +14,7 @@ engine = create_async_engine(
     echo=False,
     poolclass=NullPool,  # <--- Отключаем пул SQLAlchemy, доверяем пулеру Supabase
     connect_args={
-        "ssl": "require",
+        "ssl": os.getenv("DATABASE_SSL", "require"),
         "statement_cache_size": 0
     }
 )

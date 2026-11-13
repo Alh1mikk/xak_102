@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: afisha
+      POSTGRES_USER: afisha
+      POSTGRES_PASSWORD: afisha
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "afisha", "-d", "afisha"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://afisha:afisha@db:5432/afisha
+      DATABASE_SSL: disable
+      TELEGRAM_BOT_TOKEN: fixture-token
+      TELEGRAM_BOT_USERNAME: fixture_bot
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+  web:
+    build: ./frontend
+    depends_on:
+      api:
+        condition: service_healthy
+  integration:
+    build: ./backend
+    command: ["python", "tests/integration.py"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://afisha:afisha@db:5432/afisha
+      DATABASE_SSL: disable
+      PYTHONPATH: /app
+    depends_on:
+      web:
+        condition: service_started
