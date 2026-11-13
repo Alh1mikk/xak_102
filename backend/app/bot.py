@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import os
+import secrets
 import zlib
 from html import escape
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -50,9 +51,63 @@ async def send_results(telegram, chat_id, result, widget):
                      and event["source_urls"][0].startswith(("https://", "http://"))]
             await telegram("sendWidget", chat_id=chat_id, html=html, reply_markup={"inline_keyboard": links})
             return
-        except RuntimeError:
+        except (RuntimeError, ValueError):
             logging.info("HTML-виджет недоступен, отправляем текст")
     await telegram("sendMessage", chat_id=chat_id, text=format_results(result))
+
+
+COMMANDS = {
+    "start": "Открыть афишу",
+    "random": "Случайное событие",
+    "family": "Куда сходить с детьми",
+    "weekend": "Афиша на выходные",
+    "help": "Список команд",
+}
+HELP = "Вне афиши ✦\n" + "\n".join(f"/{name} — {label}" for name, label in COMMANDS.items())
+PRESETS = {"family": ("family", "Куда сходить с ребёнком?"),
+           "weekend": ("friends", "Куда сходить на выходных?")}
+
+
+async def handle_message(telegram, client, message):
+    query = message.get("text", "").strip()
+    if not query:
+        return
+    chat_id = message["chat"]["id"]
+    private = message["chat"]["type"] == "private"
+    head, _, argument = query.partition(" ")
+    command = head.split("@", 1)[0].lower() if head.startswith("/") else None
+    if command == "/start" and argument and private:
+        linked = await connect_chat(argument.strip(), chat_id)
+        reply = "Telegram привязан. Настройте подписку в профиле сайта." if linked else "Ссылка недействительна. Создайте новую в профиле."
+        await telegram("sendMessage", chat_id=chat_id, text=reply)
+        return
+    if command and command not in ("/random", "/family", "/weekend"):
+        if command == "/start" and private:
+            html = '<!doctype html><meta charset="utf-8"><main><h2>Вне афиши ✦</h2><p>Культурные события Башкортостана.</p></main>'
+            try:
+                await telegram("sendWidget", chat_id=chat_id, html=html)
+            except (RuntimeError, ValueError):
+                logging.info("Приветственный виджет недоступен")
+        await telegram("sendMessage", chat_id=chat_id, text=HELP)
+        return
+    try:
+        if command == "/random":
+            response = await client.get("http://api:8000/events/", params={
+                "date_from": datetime.now(timezone.utc).isoformat(), "limit": 200,
+            })
+            response.raise_for_status()
+            events = response.json()
+            result = {"explanation": "Случайное событие 🎲" if events else "Предстоящих событий пока нет.",
+                      "events": [secrets.choice(events)] if events else []}
+        else:
+            preset, text = PRESETS[command[1:]] if command else (None, query[:500])
+            response = await client.post("http://api:8000/ai/search", json={"text": text, "preset": preset})
+            response.raise_for_status()
+            result = response.json()
+    except (httpx.HTTPError, ValueError):
+        await telegram("sendMessage", chat_id=chat_id, text="Афиша сейчас недоступна. Попробуйте чуть позже.")
+        return
+    await send_results(telegram, chat_id, result, private)
 
 
 async def main():
@@ -67,6 +122,13 @@ async def main():
                 raise RuntimeError(f"Telegram {method}: {result.get('description')}")
             return result["result"]
 
+        try:
+            await telegram("setMyCommands", commands=[
+                {"command": name, "description": label} for name, label in COMMANDS.items()
+            ])
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            logging.warning("Не удалось обновить меню команд Telegram")
+
         async with asyncio.TaskGroup() as group:
             group.create_task(weekly_loop(lambda chat_id, result: send_results(telegram, chat_id, result, True)))
             await poll(telegram, client)
@@ -78,34 +140,12 @@ async def poll(telegram, client):
         try:
             updates = await telegram("getUpdates", offset=offset, timeout=25, allowed_updates=["message"])
             for update in updates:
-                message = update.get("message", {})
-                query = message.get("text", "").strip()
-                if query:
-                    reply = "Это «Вне афиши» — культурные события Башкортостана. Напишите, например, «куда пойти в субботу с ребёнком до 1000 рублей»."
-                    if query.startswith("/start ") and message["chat"]["type"] == "private":
-                        linked = await connect_chat(query.split(maxsplit=1)[1], message["chat"]["id"])
-                        reply = "Telegram привязан. Настройте подписку в профиле сайта." if linked else "Ссылка недействительна. Создайте новую в профиле."
-                    elif query in ("/start", "/help") and message["chat"]["type"] == "private":
-                        html = ('<!doctype html><meta charset="utf-8"><style>'
-                                'body{font:16px system-ui;color:#173d2c;margin:12px}'
-                                'main{background:#e5f4c9;border-radius:18px;padding:18px}</style>'
-                                '<main><h2>Вне афиши ✦</h2><p>Культурные события Башкортостана.</p>'
-                                '<p>Напишите: «Куда сходить с ребёнком на выходных?»</p></main>')
-                        try:
-                            await telegram("sendWidget", chat_id=message["chat"]["id"], html=html)
-                            offset = update["update_id"] + 1
-                            continue
-                        except RuntimeError:
-                            logging.info("Приветственный виджет недоступен")
-                    elif not query.startswith("/"):
-                        response = await client.post("http://api:8000/ai/search", json={"text": query[:500]})
-                        response.raise_for_status()
-                        result = response.json()
-                        await send_results(telegram, message["chat"]["id"], result, message["chat"]["type"] == "private")
-                        offset = update["update_id"] + 1
-                        continue
-                    await telegram("sendMessage", chat_id=message["chat"]["id"], text=reply[:4096])
                 offset = update["update_id"] + 1
+                try:
+                    await handle_message(telegram, client, update.get("message", {}))
+                except (httpx.HTTPError, RuntimeError, ValueError) as error:
+                    logging.warning("Не удалось обработать сообщение (%s)", type(error).__name__)
+
         except (httpx.HTTPError, RuntimeError, ValueError) as error:
             logging.warning("Ошибка обмена с API (%s)", type(error).__name__)
             await asyncio.sleep(5)
