@@ -2,7 +2,7 @@ from typing import Optional, Any
 import datetime
 import uuid
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, Text, UniqueConstraint, Uuid, text
+from sqlalchemy import ForeignKey, CheckConstraint, DateTime, ForeignKeyConstraint, Index, Integer, PrimaryKeyConstraint, Text, UniqueConstraint, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -150,3 +150,27 @@ class EmailUser(Base):
     login_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
     session_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
     session_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+
+
+class Preferences(Base):
+    __tablename__ = "preferences"
+    email: Mapped[str] = mapped_column(ForeignKey("email_users.email", ondelete="CASCADE"), primary_key=True)
+    filters: Mapped[dict] = mapped_column(JSONB)
+    weekly: Mapped[bool] = mapped_column(default=False)
+    telegram_chat: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    link_hash: Mapped[Optional[str]] = mapped_column(Text, unique=True)
+    link_expires: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime(True))
+    sent_week: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class Poll(Base):
+    __tablename__ = "event_polls"
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    options: Mapped[list] = mapped_column(JSONB)
+
+
+class PollVote(Base):
+    __tablename__ = "event_poll_votes"
+    poll_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("event_polls.id", ondelete="CASCADE"), primary_key=True)
+    voter: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_id: Mapped[uuid.UUID] = mapped_column(Uuid)

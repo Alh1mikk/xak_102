@@ -118,6 +118,10 @@ async def get_events(f: schemas.EventFilter, limit: int = 50, offset: int = 0):
     conditions = ["e.status = 'published'", "geo.venue IS NOT NULL"]
     params: dict = {"limit": limit, "offset": offset}
 
+    if f.ids is not None:
+        conditions.append("e.id = ANY(CAST(:event_ids AS uuid[]))")
+        params["event_ids"] = f.ids
+
     if f.family_only:
         conditions.append("(cat.slug = 'children' OR EXISTS (SELECT 1 FROM event_sources family "
                           "WHERE family.event_id = e.id AND family.raw_data->>'isSchoolFriendly' = 'true'))")

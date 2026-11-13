@@ -18,7 +18,7 @@ async def lifespan(app):
 
 # backend/app/main.py
 from fastapi import FastAPI
-from app.routers import events, sources, ai, auth
+from app.routers import events, sources, ai, auth, community
 
 app = FastAPI(
     title="Афиша культуры Башкортостана",
@@ -30,6 +30,7 @@ app.include_router(events.router)
 app.include_router(sources.router)
 app.include_router(ai.router)
 app.include_router(auth.router)
+app.include_router(community.router)
 
 
 @app.get("/")

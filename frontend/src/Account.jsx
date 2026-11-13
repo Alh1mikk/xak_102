@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import Preferences from './Preferences.jsx'
 
-export default function Account({ api, user, setUser }) {
+export default function Account({ api, user, setUser, reference }) {
   const [email, setEmail] = useState('')
   const [enabled, setEnabled] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -38,7 +39,7 @@ export default function Account({ api, user, setUser }) {
     <h1>{user && !token ? 'Профиль' : 'Вход'}</h1>
     {user && !token ? <><p>{user.name}</p><button className="primary" onClick={async () => {
       try { await api('/auth/logout', { method: 'POST' }); setUser(null) } catch (error) { setError(error.message) }
-    }}>Выйти</button></> : <form className="search" onSubmit={submit}>
+    }}>Выйти</button><Preferences api={api} reference={reference} /></> : <form className="search" onSubmit={submit}>
       {token ? <p>Подтвердите вход для {linkedEmail}.</p> : <>
         <p>Пришлём одноразовую ссылку для входа.</p>
         <label htmlFor="email">Почта</label>

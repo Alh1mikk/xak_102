@@ -4,6 +4,7 @@ import { eventParams, priceLabel, webUrl } from './catalog.js'
 import '../style.css'
 import EventMap from './Map.jsx'
 import Account from './Account.jsx'
+import Poll from './Poll.jsx'
 
 const initialFilters = { city_id: '', category_id: '', date: '', price_max: '', q: '' }
 const dateFormat = new Intl.DateTimeFormat('ru-RU', {
@@ -49,6 +50,8 @@ function App() {
   const [messages, setMessages] = useState([])
   const [user, setUser] = useState(null)
   const [selected, setSelected] = useState([])
+  const [pollLink, setPollLink] = useState('')
+  const [pollError, setPollError] = useState('')
   const [route, setRoute] = useState(null)
   const [routing, setRouting] = useState(false)
   const [routeError, setRouteError] = useState('')
@@ -166,6 +169,13 @@ function App() {
           {searching && <p role="status">Подбираем события…</p>}
           {searchError && <p role="alert">{searchError}</p>}
         </div>
+        <div className="profile-actions" aria-label="Шаблоны запросов">
+          {[
+            ['С семьёй', 'Куда сходить с ребёнком на выходных?'],
+            ['С друзьями', 'Какие концерты есть на выходных?'],
+            ['Бесплатно', 'Какие бесплатные события есть на этой неделе?'],
+          ].map(([label, text]) => <button type="button" key={label} onClick={() => setQuery(text)}>{label}</button>)}
+        </div>
         <form className="search" onSubmit={search}>
           <label htmlFor="query">Ваш запрос</label>
           <div className="search-line">
@@ -183,10 +193,22 @@ function App() {
           {routeError && <p role="status">{routeError}</p>}
           {route && <p>{(route.distance / 1000).toFixed(1)} км · {Math.ceil(route.duration / 60)} мин пешком</p>}
           <EventMap events={orderedStops(selected)} route={route} />
+          {selected.length >= 2 && selected.length <= 10 && <button className="route-choice" onClick={async () => {
+            setPollError('')
+            try {
+              const poll = await api('/polls', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: selected.map(event => event.id) }) })
+              setPollLink(location.origin + location.pathname + '#poll/' + poll.id)
+            } catch (error) { setPollError(error.message) }
+          }}>Создать голосование</button>}
+          {pollError && <p role="alert">{pollError}</p>}
+          {pollLink && <div className="profile-actions"><a href={pollLink}>Открыть голосование</a><button onClick={() => navigator.clipboard.writeText(pollLink).catch(() => setPollError('Скопируйте адрес из ссылки «Открыть голосование».'))}>Скопировать ссылку</button></div>}
         </section>}
       </section>}
-      {page === 'account' && <Account api={api} user={user} setUser={setUser} />}
-      {!['chat', 'account'].includes(page) && <section className="catalog page" id="catalog">
+      {page.startsWith('poll/') && <Poll key={page} id={page.slice(5)} api={api} Poster={Poster} onRoute={events => {
+        setSelected(events); setRoute(null); setRouteError(''); location.hash = 'chat'
+      }} />}
+      {page === 'account' && <Account api={api} user={user} setUser={setUser} reference={reference} />}
+      {!['chat', 'account'].includes(page) && !page.startsWith('poll/') && <section className="catalog page" id="catalog">
         <div className="wrap">
           <div className="catalog-head"><div><p className="location">Башкортостан</p><h1>События</h1></div></div>
           <aside className="project-intro">

@@ -78,3 +78,11 @@ footer{border-top:1px solid var(--rule);padding-block:20px;font-weight:700}
 @media(max-width:560px){.project-intro{align-items:flex-start;flex-direction:column}}
 .account-panel .search input{margin-block:6px 12px}
 .account-panel .search>p{margin-block:10px}
+
+.preferences{margin-top:24px;border-top:1px solid var(--rule);padding-top:18px}
+.preferences h2{font-weight:800;font-size:1.3rem;margin-bottom:12px}
+.preferences select{background:var(--surface);border:1px solid var(--rule);border-radius:7px;padding:8px;margin-bottom:10px}
+.preferences label.check{display:flex;align-items:center;gap:8px;margin-block:10px}
+.preferences label.check input{width:18px;height:18px;margin:0}
+.profile-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:10px}
+.profile-actions a,.profile-actions button{border:1px solid var(--green);border-radius:8px;padding:8px;color:var(--green);font-weight:600}
