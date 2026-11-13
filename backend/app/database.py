@@ -7,16 +7,18 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Важно для Supabase: передаем ssl="require" и настраиваем пул
 engine = create_async_engine(
     DATABASE_URL,
-    echo=True,  # Поставьте False на проде, True удобно для отладки SQL
-    connect_args={"ssl": "require"},  # Supabase требует SSL
+    echo=False, # Отключаем логи SQL, чтобы видеть только наши print
+    connect_args={
+        "ssl": "require",
+        "statement_cache_size": 0,
+        },
+    pool_pre_ping=True, # Важно для Supabase!
     pool_size=5,
     max_overflow=10,
 )
 
-# Фабрика сессий
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -27,7 +29,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 Base = declarative_base()
 
-# Зависимость для FastAPI
 async def get_db():
     async with AsyncSessionLocal() as session:
         try:

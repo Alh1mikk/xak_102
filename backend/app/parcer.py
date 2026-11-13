@@ -1,6 +1,6 @@
 import requests
 from datetime import datetime
-from app.schemas import EventCreate
+from routers import events
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 

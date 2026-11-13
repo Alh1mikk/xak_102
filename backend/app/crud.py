@@ -7,13 +7,32 @@ from app import models, schemas
 
 # ---------- Источники ----------
 async def get_or_create_source(db: AsyncSession, name: str, base_url: str) -> models.Source:
+    from sqlalchemy import select
+    # 1. Ищем источник
     result = await db.execute(select(models.Source).where(models.Source.base_url == base_url))
     source = result.scalar_one_or_none()
+    
+    # 2. Если нашли — возвращаем
     if source:
         return source
-    source = models.Source(name=name, base_url=base_url, is_active=True)
+    
+    # 3. Если нет — создаем
+    import uuid
+    source = models.Source(
+        id=uuid.uuid4(), # Генерируем ID на стороне Python, чтобы не ждать БД
+        name=name, 
+        base_url=base_url, 
+        is_active=True
+    )
     db.add(source)
-    await db.flush()  # чтобы получить id
+    
+    try:
+        await db.flush()
+    except Exception as e:
+        print(f"❌ Ошибка при создании источника: {e}")
+        await db.rollback()
+        raise
+    
     return source
 
 # ---------- Upsert события ----------
