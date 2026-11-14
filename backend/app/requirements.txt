@@ -5,3 +5,4 @@ asyncpg==0.30.0
 python-dotenv==1.1.0
 httpx==0.28.1
 beautifulsoup4==4.13.4
+pgvector[sqlalchemy]==0.3.2

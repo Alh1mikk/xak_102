@@ -11,10 +11,43 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    services:
+      db:
+        image: postgres:16
+        env:
+          POSTGRES_DB: afisha
+          POSTGRES_USER: afisha
+          POSTGRES_PASSWORD: afisha
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+        ports:
+          - 5432:5432
     steps:
       - uses: actions/checkout@v4
-      - name: Build and test with Docker
-        run: docker compose -f compose.test.yaml -p afisha-ci up --build --abort-on-container-exit --exit-code-from integration
+      - name: Install Python deps
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install -r backend/requirements.txt
+      - name: Backend coverage
+        run: |
+          . .venv/bin/activate
+          cd backend
+          pytest --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=80 -q
+      - name: Frontend coverage
+        run: |
+          cd frontend
+          npm ci
+          npm run test:coverage
+      - name: Upload backend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
       - name: Remove test containers
         if: always()
         run: docker compose -f compose.test.yaml -p afisha-ci down -v

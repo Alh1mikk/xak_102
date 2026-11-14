@@ -82,8 +82,73 @@ footer{border-top:1px solid var(--rule);padding-block:20px;font-weight:700}
 .preferences{margin-top:24px;border-top:1px solid var(--rule);padding-top:18px}
 .preferences h2{font-weight:800;font-size:1.3rem;margin-bottom:12px}
 .preferences select{background:var(--surface);border:1px solid var(--rule);border-radius:7px;padding:8px;margin-bottom:10px}
-.preferences label.check{display:flex;align-items:center;gap:8px;margin-block:10px}
-.preferences label.check input{width:18px;height:18px;margin:0}
+.preferences label.check {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start; 
+    gap: 12px; 
+    margin-block: 14px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: var(--ink);
+    transition: color 0.2s ease;
+    user-select: none; 
+}
+
+.preferences label.check input {
+    position: absolute;
+    opacity: 0;
+    cursor: pointer;
+    height: 0;
+    width: 0;
+}
+
+.preferences label.check::before {
+    content: "";
+    display: inline-block;
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--rule);
+    border-radius: 6px; 
+    background: var(--surface);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+    position: relative;
+}
+
+.preferences label.check:hover::before {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px var(--tint); 
+}
+
+.preferences label.check:has(input:checked)::before {
+    background-color: var(--green);
+    border-color: var(--green);
+    transform: scale(1.05);
+}
+
+.preferences label.check:has(input:checked)::after {
+    content: "";
+    position: absolute;
+    left: 8px; 
+    top: 4px;
+    width: 5px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) scale(0);
+    animation: checkmark-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+.preferences label.check:has(input:checked) {
+    color: var(--green);
+    font-weight: 600;
+}
+
+@keyframes checkmark-pop {
+    0% { transform: rotate(45deg) scale(0); opacity: 0; }
+    100% { transform: rotate(45deg) scale(1); opacity: 1; }
+}
 .profile-actions{display:flex;flex-wrap:wrap;gap:8px;margin-block:10px}
 .profile-actions a,.profile-actions button{border:1px solid var(--green);border-radius:8px;padding:8px;color:var(--green);font-weight:600}
 

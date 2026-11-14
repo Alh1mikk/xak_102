@@ -184,11 +184,14 @@ async def ai_search(payload: QueryIn, db: AsyncSession = Depends(get_db)):
         intent, model_parsed = await interpret(payload.text, now.date(), cities, categories)
     if payload.previous_text and not payload.preset:
         previous, _ = await interpret(payload.previous_text, now.date(), cities, categories, use_model=False)
+        previous_data = previous.model_dump(exclude_none=True)
+        # Не переносим возраст из предыдущего контекста, если новый текст не про детей/семью
+        previous_data.pop("age", None)
         intent = SearchIntent.model_validate({
-            **previous.model_dump(exclude_none=True), **intent.model_dump(exclude_none=True),
+            **previous_data, **intent.model_dump(exclude_none=True),
         })
     context = payload.text if payload.preset else " ".join(filter(None, (payload.previous_text, payload.text)))
-    family = intent.age is not None or bool(re.search(r"реб[её]н|дет(ьми|ей|ям)|семейн", context.lower()))
+    family = intent.age is not None or bool(re.search(r"реб[её]н|дет(ьми|ей|ям)|семейн", payload.text.lower()))
     if family and intent.age is None:
         intent.age = 6
     start = datetime.combine(intent.date_from, time.min, ZONE) if intent.date_from else now

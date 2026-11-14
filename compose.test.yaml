@@ -20,6 +20,19 @@ services:
       SMTP_HOST: mailpit
       SMTP_FROM: fixture@example.org
       EMAIL_CODE_SECRET: integration-test-secret
+      AUTH_SECURE_COOKIE: "false"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://afisha:afisha@db:5432/afisha
+      DATABASE_SSL: disable
+      SMTP_HOST: mailpit
+      SMTP_FROM: fixture@example.org
+      EMAIL_CODE_SECRET: integration-test-secret
+      AUTH_SECURE_COOKIE: "false"
+      TELEGRAM_BOT_TOKEN: fixture-token
+      TELEGRAM_BOT_USERNAME: fixture_bot
+      SMTP_HOST: mailpit
+      SMTP_FROM: fixture@example.org
+      EMAIL_CODE_SECRET: integration-test-secret
     depends_on:
       db:
         condition: service_healthy

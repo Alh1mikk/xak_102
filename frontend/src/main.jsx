@@ -95,7 +95,13 @@ function App() {
     const timer = setTimeout(async () => {
       try {
         const events = await api('/events/?' + eventParams(filters, offset), { signal: controller.signal })
-        setCatalog(current => ({ events: offset ? [...current.events, ...events] : events, loading: false, more: events.length === 9, error: '' }))
+        const seen = new Set()
+        const uniqueEvents = events.filter(e => {
+          if (seen.has(e.id)) return false
+          seen.add(e.id)
+          return true
+        })
+        setCatalog(current => ({ events: offset ? [...current.events, ...uniqueEvents] : uniqueEvents, loading: false, more: uniqueEvents.length === 9, error: '' }))
       } catch (error) {
         if (!controller.signal.aborted) setCatalog(current => ({ ...current, loading: false, error: error.message }))
       }
