@@ -198,7 +198,7 @@ class DocumentChunk(Base):
     # ✅ Вектор, а не Text. Размерность — под вашу модель эмбеддингов.
     # В логах длина строки ~14882 симв → 1024 измерения.
     # Если у вас OpenAI text-embedding-3-small — поставьте 1536.
-    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1024))
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(768))
 
     # ✅ В БД колонка называется meta (см. \d document_chunks)
     meta: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)

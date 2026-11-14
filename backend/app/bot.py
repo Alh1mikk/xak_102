@@ -1,22 +1,3 @@
-"""Telegram-бот «Вне афиши».
-
-Один файл — намеренно, чтобы сохранить структуру исходника,
-но с исправленными багами и улучшениями:
-
-- мёртвый код digest перенесён в обработчики;
-- reply-кнопки маппятся на команды;
-- безопасная работа с source_urls / price / address;
-- asyncio.get_running_loop() вместо устаревшего get_event_loop();
-- weekly_loop защищён от падений (перезапуск);
-- API_URL вынесен в env;
-- единый хелпер для запросов к /ai/search и /events/;
-- graceful shutdown по SIGTERM/KeyboardInterrupt;
-- offset сохраняется в файл, чтобы не дублировать апдейты после рестарта;
-- ссылки на задачи typing удерживаются (не собираются GC);
-- таймзона вынесена в константу;
-- format_results не режет URL посреди строки.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -26,16 +7,18 @@ import os
 import secrets
 import signal
 import zlib
-from collections import defaultdict
 from datetime import datetime, timezone
 from html import escape
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Iterable
+from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo
 
 import httpx
 
 from app.digest import connect_chat, weekly_loop
+
+# Отключаем логи httpx
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +54,7 @@ def _rate_limited(chat_id: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Форматирование
+# Форматирование (для /random, /family, /weekend)
 # ---------------------------------------------------------------------------
 
 
@@ -94,7 +77,7 @@ def _event_urls(event: dict[str, Any]) -> list[str]:
 
 
 def format_results(result: dict[str, Any]) -> str:
-    """Текстовая версия результата, укладывается в лимит Telegram (4096)."""
+    """Текстовая версия результата поиска, укладывается в лимит Telegram (4096)."""
     limit = 4096
     parts: list[str] = [result.get("explanation", "")[:600]]
     used = len(parts[0])
@@ -115,44 +98,12 @@ def format_results(result: dict[str, Any]) -> str:
             block_lines.append(urls[0])
 
         block = "\n".join(block_lines)
-        # +2 на разделитель "\n\n"
         if used + len(block) + 2 > limit:
             break
         parts.append(block)
         used += len(block) + 2
 
     return "\n\n".join(parts)
-
-
-def results_widget(result: dict[str, Any]) -> str | None:
-    """HTML-виджет для sendWidget. Возвращает None, если не влезает."""
-    cards: list[str] = []
-    for event in result.get("events", [])[:5]:
-        try:
-            start = _event_start(event)
-        except (KeyError, ValueError):
-            continue
-        title = escape(str(event.get("title") or "")[:200])
-        address = escape(str(event.get("address") or "")[:160])
-        cards.append(
-            f"<article><strong>{title}</strong>"
-            f"<p>{start:%d.%m %H:%M} · {escape(_event_cost(event))}</p>"
-            f"<p>{address}</p></article>"
-        )
-
-    explanation = escape(str(result.get("explanation") or "")[:400])
-    html = (
-        "<!doctype html><meta charset=\"utf-8\"><style>"
-        "body{font:15px system-ui;margin:10px;color:#173d2c}"
-        "article{background:#e4ece3;border-radius:12px;padding:12px;margin:8px 0}"
-        "p{margin:4px 0}</style>"
-        f"<h3>Вне афиши</h3><p>{explanation}</p>"
-        + "".join(cards)
-    )
-    raw = html.encode()
-    if len(raw) > 32768 or len(zlib.compress(raw, 9)) > 4096:
-        return None
-    return html
 
 
 def results_inline_keyboard(result: dict[str, Any]) -> dict[str, Any]:
@@ -197,7 +148,6 @@ MAIN_MENU_REPLY_KEYBOARD: dict[str, Any] = {
     "one_time_keyboard": False,
 }
 
-# Маппинг текста reply-кнопок на команды.
 BUTTON_TO_COMMAND: dict[str, str] = {
     "🎲 Случайное событие": "/random",
     "👨‍👩‍👧 С детьми": "/family",
@@ -206,14 +156,7 @@ BUTTON_TO_COMMAND: dict[str, str] = {
     "Помощь": "/help",
 }
 
-# Команды, которые обрабатывает этот модуль (остальные -> HELP).
 KNOWN_COMMANDS = {"/random", "/family", "/weekend", "/ask", "/roobert", "/digest", "/help"}
-
-WELCOME_HTML = (
-    "<!doctype html><meta charset=\"utf-8\"><main>"
-    "<h2>Вне афиши ✦</h2>"
-    "<p>Культурные события Башкортостана.</p></main>"
-)
 
 # ---------------------------------------------------------------------------
 # Обёртка над Telegram API
@@ -267,7 +210,7 @@ async def fetch_ai_search(
 
 async def fetch_ai_ask(client: httpx.AsyncClient, question: str) -> dict[str, Any]:
     response = await client.post(
-        f"{API_URL}/ai/ask", json={"text": question}, timeout=30.0
+        f"{API_URL}/ai/ask", json={"text": question}, timeout=60.0
     )
     response.raise_for_status()
     return response.json()
@@ -291,34 +234,16 @@ async def send_results(
     result: dict[str, Any],
     allow_widget: bool,
 ) -> None:
-    if allow_widget and result.get("events"):
-        html = results_widget(result)
-        if html:
-            links = [
-                [{"text": event["title"][:48], "url": _event_urls(event)[0]}]
-                for event in result["events"][:5]
-                if _event_urls(event)
-            ]
-            try:
-                await telegram(
-                    "sendWidget",
-                    chat_id=chat_id,
-                    html=html,
-                    reply_markup={"inline_keyboard": links} if links else None,
-                )
-                return
-            except (RuntimeError, ValueError, httpx.HTTPError):
-                logger.info("HTML-виджет недоступен, отправляем текст")
-
     try:
         await telegram(
             "sendMessage",
             chat_id=chat_id,
             text=format_results(result),
             reply_markup=results_inline_keyboard(result),
+            disable_web_page_preview=True,
         )
     except (RuntimeError, ValueError, httpx.HTTPError):
-        logger.exception("Не удалось отправить текст результата в чат %s", chat_id)
+        logger.exception("Не удалось отправить результат в чат %s", chat_id)
 
 
 async def send_help(telegram: TelegramCall, chat_id: int) -> None:
@@ -327,15 +252,8 @@ async def send_help(telegram: TelegramCall, chat_id: int) -> None:
     )
 
 
-async def send_welcome_widget(telegram: TelegramCall, chat_id: int) -> None:
-    try:
-        await telegram("sendWidget", chat_id=chat_id, html=WELCOME_HTML)
-    except (RuntimeError, ValueError, httpx.HTTPError):
-        logger.info("Приветственный виджет недоступен")
-
-
 # ---------------------------------------------------------------------------
-# Удержание фоновых задач (чтобы их не собрал GC)
+# Удержание фоновых задач
 # ---------------------------------------------------------------------------
 
 _BACKGROUND: set[asyncio.Task[Any]] = set()
@@ -423,7 +341,6 @@ async def handle_message(
         )
         return
 
-    # Reply-кнопки присылают текст -> маппим на команду
     if query in BUTTON_TO_COMMAND:
         query = BUTTON_TO_COMMAND[query]
 
@@ -448,15 +365,21 @@ async def handle_message(
     # Неизвестная команда или /help
     if command is not None and command not in KNOWN_COMMANDS:
         if command == "/start" and private:
-            await send_welcome_widget(telegram, chat_id)
-        await send_help(telegram, chat_id)
+            await telegram(
+                "sendMessage",
+                chat_id=chat_id,
+                text="Добро пожаловать в афишу «Вне афиши ✦»!",
+                reply_markup=MAIN_MENU_REPLY_KEYBOARD,
+            )
+        else:
+            await send_help(telegram, chat_id)
         return
 
     if command == "/help":
         await send_help(telegram, chat_id)
         return
 
-    # Индикатор набора для «долгих» команд
+    # Индикатор набора
     if command in ("/ask", "/roobert", "/family", "/weekend", "/digest", None):
         _spawn(send_chat_action(telegram, chat_id, "typing"))
 
@@ -474,12 +397,30 @@ async def handle_message(
             await telegram(
                 "sendMessage",
                 chat_id=chat_id,
-                text=(
-                    "Напишите вопрос после команды, например:\n"
-                    "/ask куда пойти с детьми в субботу бесплатно"
-                ),
+                text="Напишите вопрос после команды, например:\n/ask куда пойти с детьми в субботу бесплатно",
             )
             return
+
+        # 1. СНАЧАЛА ПРОБУЕМ ТОЧНЫЙ ПОИСК (/ai/search)
+        try:
+            search_result = await fetch_ai_search(client, question, preset=None)
+            events = search_result.get("events") or []
+            
+            if events:
+                # Если точный поиск нашел события, показываем их.
+                # Используем format_results, чтобы не было каши.
+                text = format_results(search_result)
+                await telegram(
+                    "sendMessage",
+                    chat_id=chat_id,
+                    text=text[:4000],
+                    disable_web_page_preview=True,
+                )
+                return
+        except Exception:
+            pass # Если поиск упал, идем в нейросеть
+
+        # 2. ЕСЛИ ПОИСК НИЧЕГО НЕ НАШЕЛ, ИДЕМ В НЕЙРОСЕТЬ (/ai/ask)
         try:
             data = await fetch_ai_ask(client, question)
         except (httpx.HTTPError, ValueError, asyncio.TimeoutError):
@@ -489,13 +430,17 @@ async def handle_message(
                 text="Roobert сейчас недоступен. Попробуйте чуть позже.",
             )
             return
-        answer = str(data.get("answer") or "Не удалось получить ответ.")
-        sources = data.get("sources") or []
-        if sources:
-            answer += "\n\nИсточники:\n" + "\n".join(
-                f"• {str(s.get('content') or '')[:120]}" for s in sources[:3]
-            )
-        await telegram("sendMessage", chat_id=chat_id, text=answer[:4000])
+
+        answer = str(data.get("answer") or "").strip()
+        if not answer:
+            answer = "К сожалению, ничего не нашлось. Попробуйте изменить вопрос."
+
+        await telegram(
+            "sendMessage",
+            chat_id=chat_id,
+            text=answer[:4000],
+            disable_web_page_preview=True,
+        )
         return
 
     # /family, /weekend или свободный текст
@@ -521,8 +466,12 @@ async def handle_callback(
         pass
 
     if data == "start":
-        await send_welcome_widget(telegram, chat_id)
-        await send_help(telegram, chat_id)
+        await telegram(
+            "sendMessage",
+            chat_id=chat_id,
+            text="Добро пожаловать в афишу «Вне афиши ✦»!",
+            reply_markup=MAIN_MENU_REPLY_KEYBOARD,
+        )
         return
 
     if data == "random":
@@ -600,7 +549,6 @@ async def safe_weekly_loop(
 ) -> None:
     while not stop_event.is_set():
         try:
-            # weekly_loop должен сам по себе крутиться; если упадёт — перезапускаем
             await weekly_loop(send)
         except asyncio.CancelledError:
             raise
@@ -635,7 +583,6 @@ async def main() -> None:
         try:
             loop.add_signal_handler(sig, _request_stop)
         except NotImplementedError:
-            # Windows или среда без loop.add_signal_handler
             pass
 
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=10)

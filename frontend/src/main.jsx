@@ -176,7 +176,7 @@ function App() {
           {messages.map((message, index) => message.text
             ? <p className="bubble mine" key={index}>{message.text}</p>
             : <div className="bubble page-reveal" key={index}>
-                <p>{message.reply.explanation}</p>
+                <p>{message.reply.explanation ? message.reply.explanation.substring(0, 200) + '...' : ''}</p>
                 {message.reply.events.length === 0 && <a className="route-choice empty-link" href="#events">Смотреть все события ↗</a>}
                 <div className="chat-cards">{message.reply.events.map(event => <div className="choice" key={event.id}>
                   <Poster event={event} />
