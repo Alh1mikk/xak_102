@@ -11,5 +11,6 @@ pgvector[sqlalchemy]==0.3.2
 # === Тестирование ===
 pytest>=7.0.0
 pytest-asyncio>=0.23.0
+pytest-cov>=4.0.0
 coverage>=7.0,<8.0
 faker>=17.0.0
