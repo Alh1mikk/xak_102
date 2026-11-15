@@ -1,16 +1,22 @@
-# === Приложение ===
+# === Core Application Framework ===
 fastapi==0.115.12
 uvicorn==0.34.3
+
+# === Database & ORM ===
 SQLAlchemy==2.0.41
 asyncpg==0.30.0
+pgvector[sqlalchemy]==0.3.2
+
+# === Utilities ===
 python-dotenv==1.1.0
 httpx==0.28.1
 beautifulsoup4==4.13.4
-pgvector[sqlalchemy]==0.3.2
 
-# === Тестирование ===
+# === Testing ===
 pytest>=7.0.0
 pytest-asyncio>=0.23.0
-pytest-cov>=4.0.0
 coverage>=7.0,<8.0
 faker>=17.0.0
+
+# === Runtime Support ===
+greenlet>=1.0.0
