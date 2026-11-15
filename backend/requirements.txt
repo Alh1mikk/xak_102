@@ -1,1 +1,15 @@
+# === Приложение ===
+fastapi==0.115.12
+uvicorn==0.34.3
+SQLAlchemy==2.0.41
+asyncpg==0.30.0
+python-dotenv==1.1.0
+httpx==0.28.1
+beautifulsoup4==4.13.4
+pgvector[sqlalchemy]==0.3.2
+
+# === Тестирование ===
+pytest>=7.0.0
+pytest-asyncio>=0.23.0
 coverage>=7.0,<8.0
+faker>=17.0.0
